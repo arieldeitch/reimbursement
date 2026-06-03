@@ -1,5 +1,5 @@
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,19 +10,24 @@ import {
   View,
 } from 'react-native';
 
+import { StatusBadge } from '@/components/StatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
-import type { Expense } from '@/types/expense';
+import type { Expense, ExpenseStatus } from '@/types/expense';
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   personal_card: 'Personal Card',
-  company_card: 'Company Card',
-  cash: 'Cash',
-  other: 'Other',
+  company_card:  'Company Card',
+  cash:          'Cash',
+  other:         'Other',
 };
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+const STATUS_OPTIONS: { value: ExpenseStatus; label: string }[] = [
+  { value: 'unsubmitted', label: 'Unsubmitted' },
+  { value: 'submitted',   label: 'Submitted' },
+  { value: 'approved',    label: 'Approved' },
+  { value: 'paid',        label: 'Paid' },
+  { value: 'rejected',    label: 'Rejected' },
+];
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -35,30 +40,83 @@ function Field({ label, value }: { label: string; value: string }) {
 
 export default function ExpenseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const getExpenseById = useExpenseStore((s) => s.getExpenseById);
+  const getExpenseById  = useExpenseStore((s) => s.getExpenseById);
+  const updateExpense   = useExpenseStore((s) => s.updateExpense);
+  const deleteExpense   = useExpenseStore((s) => s.deleteExpense);
 
-  const [expense, setExpense] = useState<Expense | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [expense, setExpense]               = useState<Expense | null>(null);
+  const [loading, setLoading]               = useState(true);
+  const [notFound, setNotFound]             = useState(false);
+  const [showStatusPicker, setShowStatusPicker] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [deleting, setDeleting]             = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-    (async () => {
-      try {
-        const found = await getExpenseById(id);
-        if (found) {
-          setExpense(found);
-        } else {
+  // Reload on every focus so the screen reflects edits made on the edit screen.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      getExpenseById(id)
+        .then((found) => {
+          if (found) {
+            setExpense(found);
+            setNotFound(false);
+          } else {
+            setNotFound(true);
+          }
+          setLoading(false);
+        })
+        .catch(() => {
           setNotFound(true);
-        }
-      } catch (e) {
-        console.error('Failed to load expense:', e);
-        setNotFound(true);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [id, getExpenseById]);
+          setLoading(false);
+        });
+    }, [id, getExpenseById]),
+  );
+
+  const handleEdit = () => {
+    if (!expense) return;
+    router.push({ pathname: '/edit-expense', params: { id: expense.id } });
+  };
+
+  const handleStatusChange = async (newStatus: ExpenseStatus) => {
+    if (!expense) return;
+    setChangingStatus(true);
+    try {
+      await updateExpense({ ...expense, status: newStatus });
+      setExpense((prev) => prev ? { ...prev, status: newStatus } : prev);
+      setShowStatusPicker(false);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Failed to update status. Please try again.');
+    } finally {
+      setChangingStatus(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (!expense) return;
+    Alert.alert(
+      'Delete Expense',
+      `Remove "${expense.title}" from your list? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteExpense(expense.id);
+              router.back();
+            } catch (e) {
+              console.error(e);
+              Alert.alert('Error', 'Failed to delete expense. Please try again.');
+              setDeleting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   if (loading) {
     return (
@@ -81,37 +139,76 @@ export default function ExpenseDetailScreen() {
 
       <Text style={styles.title}>{expense.title}</Text>
       <Text style={styles.amount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
+      <View style={styles.badgeRow}>
+        <StatusBadge status={expense.status} />
+      </View>
 
       <View style={styles.divider} />
 
       <Field label="Date" value={expense.date} />
-      <Field label="Category" value={capitalize(expense.category)} />
-      <Field label="Payment Method" value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod} />
-      <Field label="Status" value={capitalize(expense.status)} />
+      <Field
+        label="Category"
+        value={expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
+      />
+      <Field
+        label="Payment Method"
+        value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod}
+      />
       {expense.notes ? <Field label="Notes" value={expense.notes} /> : null}
 
       <View style={styles.divider} />
 
+      {/* Action buttons */}
       <View style={styles.primaryActions}>
         <Pressable
           style={[styles.button, styles.outlineButton]}
-          onPress={() => Alert.alert('Coming soon', 'Edit will be available in the next phase.')}
+          onPress={handleEdit}
         >
           <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>
         </Pressable>
+
         <Pressable
-          style={[styles.button, styles.outlineButton]}
-          onPress={() => Alert.alert('Coming soon', 'Status change will be available in the next phase.')}
+          style={[styles.button, styles.outlineButton, showStatusPicker && styles.outlineButtonActive]}
+          onPress={() => setShowStatusPicker((v) => !v)}
         >
-          <Text style={[styles.buttonText, styles.outlineButtonText]}>Change Status</Text>
+          <Text style={[
+            styles.buttonText,
+            styles.outlineButtonText,
+            showStatusPicker && styles.outlineButtonTextActive,
+          ]}>
+            Change Status
+          </Text>
         </Pressable>
       </View>
 
+      {/* Inline status picker */}
+      {showStatusPicker && (
+        <View style={styles.statusPicker}>
+          {STATUS_OPTIONS.map((opt) => {
+            const isCurrent = expense.status === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                style={[styles.statusOption, isCurrent && styles.statusOptionCurrent]}
+                onPress={() => handleStatusChange(opt.value)}
+                disabled={changingStatus || isCurrent}
+              >
+                <StatusBadge status={opt.value} />
+                {isCurrent && <Text style={styles.statusOptionTick}> ✓</Text>}
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
       <Pressable
-        style={[styles.button, styles.dangerButton]}
-        onPress={() => Alert.alert('Coming soon', 'Delete will be available in the next phase.')}
+        style={[styles.button, styles.dangerButton, deleting && styles.dangerButtonDisabled]}
+        onPress={handleDelete}
+        disabled={deleting}
       >
-        <Text style={[styles.buttonText, styles.dangerButtonText]}>Delete</Text>
+        <Text style={[styles.buttonText, styles.dangerButtonText]}>
+          {deleting ? 'Deleting…' : 'Delete'}
+        </Text>
       </Pressable>
 
     </ScrollView>
@@ -147,6 +244,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#2563EB',
     marginTop: 4,
+  },
+  badgeRow: {
+    marginTop: 10,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
@@ -187,14 +287,51 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#2563EB',
   },
+  outlineButtonActive: {
+    backgroundColor: '#2563EB',
+  },
   outlineButtonText: {
     color: '#2563EB',
+  },
+  outlineButtonTextActive: {
+    color: '#fff',
   },
   dangerButton: {
     borderWidth: 1.5,
     borderColor: '#DC2626',
+    marginTop: 0,
+  },
+  dangerButtonDisabled: {
+    borderColor: '#fca5a5',
   },
   dangerButtonText: {
     color: '#DC2626',
+  },
+  statusPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  statusOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    borderRadius: 4,
+    opacity: 1,
+  },
+  statusOptionCurrent: {
+    opacity: 0.6,
+  },
+  statusOptionTick: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '700',
   },
 });

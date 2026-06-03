@@ -1,3 +1,4 @@
+import { Link } from 'expo-router';
 import { router } from 'expo-router';
 import {
   ActivityIndicator,
@@ -8,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import { StatusBadge } from '@/components/StatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
 import type { Expense } from '@/types/expense';
 
@@ -20,11 +22,11 @@ function ExpenseItem({ expense }: { expense: Expense }) {
       <View style={styles.itemLeft}>
         <Text style={styles.itemTitle} numberOfLines={1}>{expense.title}</Text>
         <Text style={styles.itemMeta}>{expense.date} · {expense.category}</Text>
+        <View style={styles.itemBadge}>
+          <StatusBadge status={expense.status} />
+        </View>
       </View>
-      <View style={styles.itemRight}>
-        <Text style={styles.itemAmount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
-        <Text style={styles.itemStatus}>{expense.status}</Text>
-      </View>
+      <Text style={styles.itemAmount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
     </Pressable>
   );
 }
@@ -39,6 +41,7 @@ export default function HomeScreen() {
         <ActivityIndicator style={styles.loader} size="large" color="#2563EB" />
       ) : (
         <FlatList
+          style={styles.list}
           data={expenses}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <ExpenseItem expense={item} />}
@@ -53,9 +56,11 @@ export default function HomeScreen() {
         />
       )}
 
-      <Pressable style={styles.addButton} onPress={() => router.push('/add-expense')}>
-        <Text style={styles.addButtonText}>+ Add Expense</Text>
-      </Pressable>
+      <Link href="/add-expense" asChild>
+        <Pressable style={styles.addButton}>
+          <Text style={styles.addButtonText}>+ Add Expense</Text>
+        </Pressable>
+      </Link>
     </View>
   );
 }
@@ -66,6 +71,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   loader: {
+    flex: 1,
+  },
+  list: {
     flex: 1,
   },
   listContent: {
@@ -99,19 +107,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textTransform: 'capitalize',
   },
-  itemRight: {
-    alignItems: 'flex-end',
+  itemBadge: {
+    marginTop: 6,
   },
   itemAmount: {
     fontSize: 16,
     fontWeight: '700',
     color: '#111',
-  },
-  itemStatus: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 2,
-    textTransform: 'capitalize',
   },
   separator: {
     height: StyleSheet.hairlineWidth,
