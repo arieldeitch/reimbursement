@@ -27,6 +27,7 @@ export default function RootLayout() {
     <Stack>
       <Stack.Screen name="index" options={{ title: 'Expenses' }} />
       <Stack.Screen name="add-expense" options={{ title: 'Add Expense', presentation: 'modal' }} />
+      <Stack.Screen name="expense/[id]" options={{ title: 'Expense' }} />
     </Stack>
   );
 }

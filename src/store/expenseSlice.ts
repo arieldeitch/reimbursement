@@ -18,9 +18,12 @@ interface ExpenseState {
   isLoading: boolean;
   loadExpenses: () => Promise<void>;
   addExpense: (input: AddExpenseInput) => Promise<void>;
+  getExpenseById: (id: string) => Promise<Expense | null>;
+  updateExpense: (expense: Expense) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
 }
 
-export const useExpenseStore = create<ExpenseState>((set) => ({
+export const useExpenseStore = create<ExpenseState>((set, get) => ({
   expenses: [],
   isLoading: false,
 
@@ -42,5 +45,25 @@ export const useExpenseStore = create<ExpenseState>((set) => ({
       deletedAt: null,
     });
     set((state) => ({ expenses: [expense, ...state.expenses] }));
+  },
+
+  getExpenseById: async (id) => {
+    const cached = get().expenses.find((e) => e.id === id) ?? null;
+    if (cached) return cached;
+    return getExpenseRepository().getById(id);
+  },
+
+  updateExpense: async (expense) => {
+    const updated = await getExpenseRepository().update(expense);
+    set((state) => ({
+      expenses: state.expenses.map((e) => (e.id === updated.id ? updated : e)),
+    }));
+  },
+
+  deleteExpense: async (id) => {
+    await getExpenseRepository().softDelete(id);
+    set((state) => ({
+      expenses: state.expenses.filter((e) => e.id !== id),
+    }));
   },
 }));

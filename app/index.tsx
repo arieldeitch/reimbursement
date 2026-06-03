@@ -13,7 +13,10 @@ import type { Expense } from '@/types/expense';
 
 function ExpenseItem({ expense }: { expense: Expense }) {
   return (
-    <View style={styles.item}>
+    <Pressable
+      style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
+      onPress={() => router.push(`/expense/${expense.id}`)}
+    >
       <View style={styles.itemLeft}>
         <Text style={styles.itemTitle} numberOfLines={1}>{expense.title}</Text>
         <Text style={styles.itemMeta}>{expense.date} · {expense.category}</Text>
@@ -22,7 +25,7 @@ function ExpenseItem({ expense }: { expense: Expense }) {
         <Text style={styles.itemAmount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
         <Text style={styles.itemStatus}>{expense.status}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -77,6 +80,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingHorizontal: 16,
     paddingVertical: 14,
+  },
+  itemPressed: {
+    backgroundColor: '#f0f4ff',
   },
   itemLeft: {
     flex: 1,

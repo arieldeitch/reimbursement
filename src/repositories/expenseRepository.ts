@@ -57,6 +57,39 @@ export class ExpenseRepository implements Repository<Expense> {
     return row ? rowToExpense(row) : null;
   }
 
+  getById(id: string): Promise<Expense | null> {
+    return this.findById(id);
+  }
+
+  async update(expense: Expense): Promise<Expense> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      `UPDATE expenses SET
+         title = ?, amount = ?, currency = ?, date = ?, category = ?,
+         payment_method = ?, status = ?, notes = ?, deleted_at = ?,
+         updated_at = ?
+       WHERE id = ?`,
+      [
+        expense.title,
+        expense.amount,
+        expense.currency,
+        expense.date,
+        expense.category,
+        expense.paymentMethod,
+        expense.status,
+        expense.notes ?? null,
+        expense.deletedAt ?? null,
+        now,
+        expense.id,
+      ],
+    );
+    return { ...expense, updatedAt: now };
+  }
+
+  softDelete(id: string): Promise<void> {
+    return this.delete(id);
+  }
+
   async save(data: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>): Promise<Expense> {
     const id = generateId();
     const now = new Date().toISOString();
