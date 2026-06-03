@@ -24,6 +24,14 @@ export interface Expense extends Entity {
   status: ExpenseStatus;
   notes?: string;
   deletedAt: string | null;
+  /**
+   * Relationship: Expense → WorkTrip (optional).
+   * When set, this expense belongs to the WorkTrip with this id.
+   * WorkTrip is domain-modelled in src/types/trip.ts but has no UI yet.
+   * The expenses SQLite table will gain a work_trip_id column via migration
+   * when the Trip feature is activated.
+   */
+  workTripId?: string;
 }
 
 export const EXPENSE_CATEGORIES: { value: ExpenseCategory; label: string }[] = [

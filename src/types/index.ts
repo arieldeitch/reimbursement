@@ -6,3 +6,4 @@ export type {
   PaymentMethod,
 } from './expense';
 export { EXPENSE_CATEGORIES, PAYMENT_METHODS } from './expense';
+export type { WorkTrip, TripStatus } from './trip';
