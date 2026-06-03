@@ -1,15 +1,58 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { useAppStore } from '@/store';
+import { useExpenseStore } from '@/store/expenseSlice';
+import type { Expense } from '@/types/expense';
+
+function ExpenseItem({ expense }: { expense: Expense }) {
+  return (
+    <View style={styles.item}>
+      <View style={styles.itemLeft}>
+        <Text style={styles.itemTitle} numberOfLines={1}>{expense.title}</Text>
+        <Text style={styles.itemMeta}>{expense.date} · {expense.category}</Text>
+      </View>
+      <View style={styles.itemRight}>
+        <Text style={styles.itemAmount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
+        <Text style={styles.itemStatus}>{expense.status}</Text>
+      </View>
+    </View>
+  );
+}
 
 export default function HomeScreen() {
-  const isDbReady = useAppStore((s) => s.isDbReady);
+  const expenses = useExpenseStore((s) => s.expenses);
+  const isLoading = useExpenseStore((s) => s.isLoading);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Reimbursements</Text>
-      <Text style={styles.subtitle}>Phase 1 — Foundation</Text>
-      <Text style={styles.status}>DB: {isDbReady ? 'ready' : 'initializing...'}</Text>
+      {isLoading ? (
+        <ActivityIndicator style={styles.loader} size="large" color="#2563EB" />
+      ) : (
+        <FlatList
+          data={expenses}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <ExpenseItem expense={item} />}
+          contentContainerStyle={expenses.length === 0 ? styles.emptyContainer : styles.listContent}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>No expenses yet</Text>
+              <Text style={styles.emptySubtitle}>Tap the button below to add one</Text>
+            </View>
+          }
+        />
+      )}
+
+      <Pressable style={styles.addButton} onPress={() => router.push('/add-expense')}>
+        <Text style={styles.addButtonText}>+ Add Expense</Text>
+      </Pressable>
     </View>
   );
 }
@@ -17,24 +60,83 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    padding: 24,
+    backgroundColor: '#f5f5f5',
   },
-  title: {
-    fontSize: 28,
+  loader: {
+    flex: 1,
+  },
+  listContent: {
+    paddingVertical: 8,
+  },
+  emptyContainer: {
+    flex: 1,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  itemLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  itemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
+  },
+  itemMeta: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  itemRight: {
+    alignItems: 'flex-end',
+  },
+  itemAmount: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#111',
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 8,
+  itemStatus: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
+    textTransform: 'capitalize',
   },
-  status: {
-    fontSize: 13,
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#e5e5e5',
+    marginLeft: 16,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#555',
+  },
+  emptySubtitle: {
+    fontSize: 14,
     color: '#999',
-    marginTop: 24,
+    marginTop: 6,
+  },
+  addButton: {
+    margin: 16,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  addButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
