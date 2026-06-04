@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
+import { Alert } from 'react-native';
 
 import { getDatabase } from '@/db/client';
 import { initExpenseRepository } from '@/repositories/expenseRepository';
@@ -19,6 +20,7 @@ export default function RootLayout() {
         setDbReady(true);
       } catch (e) {
         console.error('Boot error:', e);
+        Alert.alert('Startup Error', 'The app failed to initialize. Please restart and try again.');
       }
     })();
   }, [setDbReady, loadExpenses]);

@@ -40,7 +40,10 @@ export default function EditExpenseScreen() {
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     getExpenseById(id).then((found) => {
       if (found) {
         setOriginal(found);
@@ -93,6 +96,9 @@ export default function EditExpenseScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.notFoundText}>Expense not found</Text>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </Pressable>
       </View>
     );
   }
@@ -223,6 +229,19 @@ const styles = StyleSheet.create({
   notFoundText: {
     fontSize: 16,
     color: '#888',
+  },
+  backButton: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#2563EB',
+  },
+  backButtonText: {
+    color: '#2563EB',
+    fontSize: 15,
+    fontWeight: '600',
   },
   content: {
     padding: 20,
