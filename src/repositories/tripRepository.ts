@@ -1,48 +1,112 @@
-/**
- * TripRepository — skeleton, not yet wired to SQLite.
- *
- * The trips table and its migration will be added when the Trip UI phase
- * begins. Until then this class holds the method contracts so the rest of
- * the codebase can reference them without touching unimplemented code paths.
- *
- * Activation checklist (do not do this yet):
- *   1. Add CREATE TABLE trips … to src/db/client.ts _initSchema
- *   2. Add work_trip_id column migration to the expenses table
- *   3. Call initTripRepository(db) inside _layout.tsx after getDatabase()
- *   4. Wire a Zustand trip slice that calls these methods
- */
-
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { WorkTrip } from '@/types/trip';
+import type { WorkTrip, TripStatus } from '@/types/trip';
+
+interface TripRow {
+  id: string;
+  name: string;
+  destination: string;
+  client: string | null;
+  start_date: string;
+  end_date: string;
+  notes: string | null;
+  status: string;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function rowToTrip(row: TripRow): WorkTrip {
+  return {
+    id: row.id,
+    name: row.name,
+    destination: row.destination,
+    client: row.client ?? undefined,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    notes: row.notes ?? undefined,
+    status: row.status as TripStatus,
+    deletedAt: row.deleted_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function generateId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+}
 
 export class TripRepository {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(_db: SQLiteDatabase) {}
+  constructor(private readonly db: SQLiteDatabase) {}
 
-  /** Returns all non-deleted trips ordered by startDate descending. */
   async list(): Promise<WorkTrip[]> {
-    throw new Error('TripRepository.list: not yet implemented');
+    const rows = await this.db.getAllAsync<TripRow>(
+      'SELECT * FROM trips WHERE deleted_at IS NULL ORDER BY start_date DESC, created_at DESC',
+    );
+    return rows.map(rowToTrip);
   }
 
-  /** Returns a single trip by id, or null if not found or soft-deleted. */
-  async getById(_id: string): Promise<WorkTrip | null> {
-    throw new Error('TripRepository.getById: not yet implemented');
+  async getById(id: string): Promise<WorkTrip | null> {
+    const row = await this.db.getFirstAsync<TripRow>(
+      'SELECT * FROM trips WHERE id = ? AND deleted_at IS NULL',
+      [id],
+    );
+    return row ? rowToTrip(row) : null;
   }
 
-  /** Persists a new trip and returns it with generated id and timestamps. */
-  async create(_data: Omit<WorkTrip, 'id' | 'createdAt' | 'updatedAt'>): Promise<WorkTrip> {
-    throw new Error('TripRepository.create: not yet implemented');
+  async create(data: Omit<WorkTrip, 'id' | 'createdAt' | 'updatedAt'>): Promise<WorkTrip> {
+    const id = generateId();
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      `INSERT INTO trips
+         (id, name, destination, client, start_date, end_date, notes, status, deleted_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        data.name,
+        data.destination,
+        data.client ?? null,
+        data.startDate,
+        data.endDate,
+        data.notes ?? null,
+        data.status,
+        data.deletedAt ?? null,
+        now,
+        now,
+      ],
+    );
+    return { ...data, id, createdAt: now, updatedAt: now };
   }
 
-  /** Updates all mutable fields of a trip and returns it with a fresh updatedAt. */
-  async update(_trip: WorkTrip): Promise<WorkTrip> {
-    throw new Error('TripRepository.update: not yet implemented');
+  async update(trip: WorkTrip): Promise<WorkTrip> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      `UPDATE trips SET
+         name = ?, destination = ?, client = ?, start_date = ?, end_date = ?,
+         notes = ?, status = ?, deleted_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        trip.name,
+        trip.destination,
+        trip.client ?? null,
+        trip.startDate,
+        trip.endDate,
+        trip.notes ?? null,
+        trip.status,
+        trip.deletedAt ?? null,
+        now,
+        trip.id,
+      ],
+    );
+    return { ...trip, updatedAt: now };
   }
 
-  /** Sets deleted_at on the trip row — does not hard-delete. */
-  async softDelete(_id: string): Promise<void> {
-    throw new Error('TripRepository.softDelete: not yet implemented');
+  async softDelete(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      'UPDATE trips SET deleted_at = ?, updated_at = ? WHERE id = ?',
+      [now, now, id],
+    );
   }
 }
 

@@ -30,5 +30,19 @@ async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS trips (
+      id          TEXT PRIMARY KEY NOT NULL,
+      name        TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      client      TEXT,
+      start_date  TEXT NOT NULL,
+      end_date    TEXT NOT NULL,
+      notes       TEXT,
+      status      TEXT NOT NULL DEFAULT 'open',
+      deleted_at  TEXT,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
   `);
 }
