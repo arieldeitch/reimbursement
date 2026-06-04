@@ -21,6 +21,7 @@ interface ExpenseState {
   getExpenseById: (id: string) => Promise<Expense | null>;
   updateExpense: (expense: Expense) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
+  assignExpenseToBatch: (expenseId: string, batchId: string | null) => Promise<void>;
 }
 
 export const useExpenseStore = create<ExpenseState>((set, get) => ({
@@ -64,6 +65,17 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
     await getExpenseRepository().softDelete(id);
     set((state) => ({
       expenses: state.expenses.filter((e) => e.id !== id),
+    }));
+  },
+
+  assignExpenseToBatch: async (expenseId, batchId) => {
+    await getExpenseRepository().assignToBatch(expenseId, batchId);
+    set((state) => ({
+      expenses: state.expenses.map((e) =>
+        e.id === expenseId
+          ? { ...e, reimbursementBatchId: batchId ?? undefined }
+          : e,
+      ),
     }));
   },
 }));

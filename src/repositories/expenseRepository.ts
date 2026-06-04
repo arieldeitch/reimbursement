@@ -15,6 +15,7 @@ interface ExpenseRow {
   notes: string | null;
   deleted_at: string | null;
   work_trip_id: string | null;
+  reimbursement_batch_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +33,7 @@ function rowToExpense(row: ExpenseRow): Expense {
     notes: row.notes ?? undefined,
     deletedAt: row.deleted_at,
     workTripId: row.work_trip_id ?? undefined,
+    reimbursementBatchId: row.reimbursement_batch_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -69,7 +71,7 @@ export class ExpenseRepository implements Repository<Expense> {
       `UPDATE expenses SET
          title = ?, amount = ?, currency = ?, date = ?, category = ?,
          payment_method = ?, status = ?, notes = ?, deleted_at = ?,
-         work_trip_id = ?, updated_at = ?
+         work_trip_id = ?, reimbursement_batch_id = ?, updated_at = ?
        WHERE id = ?`,
       [
         expense.title,
@@ -82,6 +84,7 @@ export class ExpenseRepository implements Repository<Expense> {
         expense.notes ?? null,
         expense.deletedAt ?? null,
         expense.workTripId ?? null,
+        expense.reimbursementBatchId ?? null,
         now,
         expense.id,
       ],
@@ -99,8 +102,8 @@ export class ExpenseRepository implements Repository<Expense> {
     await this.db.runAsync(
       `INSERT INTO expenses
          (id, title, amount, currency, date, category, payment_method,
-          status, notes, deleted_at, work_trip_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          status, notes, deleted_at, work_trip_id, reimbursement_batch_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.title,
@@ -113,6 +116,7 @@ export class ExpenseRepository implements Repository<Expense> {
         data.notes ?? null,
         data.deletedAt ?? null,
         data.workTripId ?? null,
+        data.reimbursementBatchId ?? null,
         now,
         now,
       ],
@@ -134,6 +138,29 @@ export class ExpenseRepository implements Repository<Expense> {
       [tripId],
     );
     return rows.map(rowToExpense);
+  }
+
+  async findByBatchId(batchId: string): Promise<Expense[]> {
+    const rows = await this.db.getAllAsync<ExpenseRow>(
+      'SELECT * FROM expenses WHERE reimbursement_batch_id = ? AND deleted_at IS NULL ORDER BY date DESC, created_at DESC',
+      [batchId],
+    );
+    return rows.map(rowToExpense);
+  }
+
+  async findUnbatched(): Promise<Expense[]> {
+    const rows = await this.db.getAllAsync<ExpenseRow>(
+      'SELECT * FROM expenses WHERE reimbursement_batch_id IS NULL AND deleted_at IS NULL ORDER BY date DESC, created_at DESC',
+    );
+    return rows.map(rowToExpense);
+  }
+
+  async assignToBatch(expenseId: string, batchId: string | null): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      'UPDATE expenses SET reimbursement_batch_id = ?, updated_at = ? WHERE id = ?',
+      [batchId, now, expenseId],
+    );
   }
 
   async getSummaryByTripId(tripId: string): Promise<{ count: number; total: number }> {

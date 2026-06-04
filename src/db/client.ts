@@ -13,9 +13,14 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 async function _runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
-  const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(expenses)');
-  if (!cols.some((c) => c.name === 'work_trip_id')) {
+  const expCols  = new Set(
+    (await db.getAllAsync<{ name: string }>('PRAGMA table_info(expenses)')).map((c) => c.name),
+  );
+  if (!expCols.has('work_trip_id')) {
     await db.runAsync('ALTER TABLE expenses ADD COLUMN work_trip_id TEXT');
+  }
+  if (!expCols.has('reimbursement_batch_id')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN reimbursement_batch_id TEXT');
   }
 }
 
@@ -37,6 +42,19 @@ async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       deleted_at    TEXT,
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS reimbursement_batches (
+      id           TEXT PRIMARY KEY NOT NULL,
+      name         TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'draft',
+      submitted_at TEXT,
+      approved_at  TEXT,
+      paid_at      TEXT,
+      notes        TEXT,
+      deleted_at   TEXT,
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS trips (

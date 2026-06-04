@@ -7,3 +7,4 @@ export type {
 } from './expense';
 export { EXPENSE_CATEGORIES, PAYMENT_METHODS } from './expense';
 export type { WorkTrip, TripStatus } from './trip';
+export type { ReimbursementBatch, BatchStatus } from './batch';
