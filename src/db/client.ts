@@ -8,7 +8,15 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (_db) return _db;
   _db = await SQLite.openDatabaseAsync(DB_NAME);
   await _initSchema(_db);
+  await _runMigrations(_db);
   return _db;
+}
+
+async function _runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
+  const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(expenses)');
+  if (!cols.some((c) => c.name === 'work_trip_id')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN work_trip_id TEXT');
+  }
 }
 
 async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {

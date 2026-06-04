@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,9 @@ import {
   View,
 } from 'react-native';
 
+import { StatusBadge } from '@/components/StatusBadge';
 import { TripStatusBadge } from '@/components/TripStatusBadge';
+import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
 import type { WorkTrip } from '@/types/trip';
 
@@ -27,6 +29,7 @@ export default function TripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const getTripById = useTripStore((s) => s.getTripById);
   const deleteTrip  = useTripStore((s) => s.deleteTrip);
+  const expenses    = useExpenseStore((s) => s.expenses);
 
   const [trip, setTrip]         = useState<WorkTrip | null>(null);
   const [loading, setLoading]   = useState(true);
@@ -56,6 +59,14 @@ export default function TripDetailScreen() {
         });
     }, [id, getTripById]),
   );
+
+  const tripExpenses = useMemo(
+    () => (trip ? expenses.filter((e) => e.workTripId === trip.id) : []),
+    [expenses, trip],
+  );
+
+  const expenseTotal    = useMemo(() => tripExpenses.reduce((sum, e) => sum + e.amount, 0), [tripExpenses]);
+  const expenseCurrency = tripExpenses[0]?.currency ?? 'USD';
 
   const handleEdit = () => {
     if (!trip) return;
@@ -122,6 +133,42 @@ export default function TripDetailScreen() {
       <Field label="End Date"    value={trip.endDate} />
       {trip.client ? <Field label="Client" value={trip.client} /> : null}
       {trip.notes  ? <Field label="Notes"  value={trip.notes}  /> : null}
+
+      <View style={styles.divider} />
+
+      {/* Assigned Expenses */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>
+          Assigned Expenses{tripExpenses.length > 0 ? ` (${tripExpenses.length})` : ''}
+        </Text>
+        {tripExpenses.length > 0 && (
+          <Text style={styles.sectionTotal}>
+            {expenseCurrency} {expenseTotal.toFixed(2)}
+          </Text>
+        )}
+      </View>
+
+      {tripExpenses.length === 0 ? (
+        <Text style={styles.noExpenses}>No expenses assigned to this trip.</Text>
+      ) : (
+        tripExpenses.map((expense) => (
+          <Pressable
+            key={expense.id}
+            style={({ pressed }) => [styles.expenseRow, pressed && styles.expenseRowPressed]}
+            onPress={() => router.push(`/expense/${expense.id}`)}
+          >
+            <View style={styles.expenseRowLeft}>
+              <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
+              <View style={styles.expenseRowBadge}>
+                <StatusBadge status={expense.status} />
+              </View>
+            </View>
+            <Text style={styles.expenseRowAmount}>
+              {expense.currency} {expense.amount.toFixed(2)}
+            </Text>
+          </Pressable>
+        ))
+      )}
 
       <View style={styles.divider} />
 
@@ -203,6 +250,58 @@ const styles = StyleSheet.create({
   },
   fieldValue: {
     fontSize: 16,
+    color: '#111',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#999',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  sectionTotal: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  noExpenses: {
+    fontSize: 14,
+    color: '#aaa',
+    marginBottom: 4,
+  },
+  expenseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  expenseRowPressed: {
+    backgroundColor: '#eff6ff',
+  },
+  expenseRowLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  expenseRowTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111',
+  },
+  expenseRowBadge: {
+    marginTop: 4,
+  },
+  expenseRowAmount: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#111',
   },
   actions: {

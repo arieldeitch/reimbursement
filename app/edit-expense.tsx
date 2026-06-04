@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import { useExpenseStore } from '@/store/expenseSlice';
+import { useTripStore } from '@/store/tripSlice';
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
@@ -25,7 +26,8 @@ import {
 export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const getExpenseById = useExpenseStore((s) => s.getExpenseById);
-  const updateExpense = useExpenseStore((s) => s.updateExpense);
+  const updateExpense  = useExpenseStore((s) => s.updateExpense);
+  const trips          = useTripStore((s) => s.trips);
 
   const [original, setOriginal] = useState<Expense | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,7 +39,8 @@ export default function EditExpenseScreen() {
   const [date, setDate] = useState('');
   const [category, setCategory] = useState<ExpenseCategory>('other');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('personal_card');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes]           = useState('');
+  const [workTripId, setWorkTripId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!id) {
@@ -54,6 +57,7 @@ export default function EditExpenseScreen() {
         setCategory(found.category);
         setPaymentMethod(found.paymentMethod);
         setNotes(found.notes ?? '');
+        setWorkTripId(found.workTripId);
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -74,6 +78,7 @@ export default function EditExpenseScreen() {
         category,
         paymentMethod,
         notes: notes.trim() || undefined,
+        workTripId,
       });
       router.back();
     } catch (e) {
@@ -187,6 +192,30 @@ export default function EditExpenseScreen() {
             >
               <Text style={[styles.chipText, paymentMethod === pm.value && styles.chipTextActive]}>
                 {pm.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <Text style={styles.label}>Trip (optional)</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+          <Pressable
+            style={[styles.chip, !workTripId && styles.chipActive]}
+            onPress={() => setWorkTripId(undefined)}
+          >
+            <Text style={[styles.chipText, !workTripId && styles.chipTextActive]}>None</Text>
+          </Pressable>
+          {trips.map((trip) => (
+            <Pressable
+              key={trip.id}
+              style={[styles.chip, workTripId === trip.id && styles.chipActive]}
+              onPress={() => setWorkTripId(trip.id)}
+            >
+              <Text
+                style={[styles.chipText, workTripId === trip.id && styles.chipTextActive]}
+                numberOfLines={1}
+              >
+                {trip.name}
               </Text>
             </Pressable>
           ))}

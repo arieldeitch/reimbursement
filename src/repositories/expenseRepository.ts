@@ -14,6 +14,7 @@ interface ExpenseRow {
   status: string;
   notes: string | null;
   deleted_at: string | null;
+  work_trip_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +31,7 @@ function rowToExpense(row: ExpenseRow): Expense {
     status: row.status as ExpenseStatus,
     notes: row.notes ?? undefined,
     deletedAt: row.deleted_at,
+    workTripId: row.work_trip_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -67,7 +69,7 @@ export class ExpenseRepository implements Repository<Expense> {
       `UPDATE expenses SET
          title = ?, amount = ?, currency = ?, date = ?, category = ?,
          payment_method = ?, status = ?, notes = ?, deleted_at = ?,
-         updated_at = ?
+         work_trip_id = ?, updated_at = ?
        WHERE id = ?`,
       [
         expense.title,
@@ -79,6 +81,7 @@ export class ExpenseRepository implements Repository<Expense> {
         expense.status,
         expense.notes ?? null,
         expense.deletedAt ?? null,
+        expense.workTripId ?? null,
         now,
         expense.id,
       ],
@@ -96,8 +99,8 @@ export class ExpenseRepository implements Repository<Expense> {
     await this.db.runAsync(
       `INSERT INTO expenses
          (id, title, amount, currency, date, category, payment_method,
-          status, notes, deleted_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          status, notes, deleted_at, work_trip_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.title,
@@ -109,6 +112,7 @@ export class ExpenseRepository implements Repository<Expense> {
         data.status,
         data.notes ?? null,
         data.deletedAt ?? null,
+        data.workTripId ?? null,
         now,
         now,
       ],
@@ -122,6 +126,22 @@ export class ExpenseRepository implements Repository<Expense> {
       'UPDATE expenses SET deleted_at = ?, updated_at = ? WHERE id = ?',
       [now, now, id],
     );
+  }
+
+  async findByTripId(tripId: string): Promise<Expense[]> {
+    const rows = await this.db.getAllAsync<ExpenseRow>(
+      'SELECT * FROM expenses WHERE work_trip_id = ? AND deleted_at IS NULL ORDER BY date DESC, created_at DESC',
+      [tripId],
+    );
+    return rows.map(rowToExpense);
+  }
+
+  async getSummaryByTripId(tripId: string): Promise<{ count: number; total: number }> {
+    const row = await this.db.getFirstAsync<{ cnt: number; total: number }>(
+      'SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total FROM expenses WHERE work_trip_id = ? AND deleted_at IS NULL',
+      [tripId],
+    );
+    return { count: row?.cnt ?? 0, total: row?.total ?? 0 };
   }
 }
 

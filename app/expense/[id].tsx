@@ -12,6 +12,7 @@ import {
 
 import { StatusBadge } from '@/components/StatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
+import { useTripStore } from '@/store/tripSlice';
 import type { Expense, ExpenseStatus } from '@/types/expense';
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -43,6 +44,7 @@ export default function ExpenseDetailScreen() {
   const getExpenseById  = useExpenseStore((s) => s.getExpenseById);
   const updateExpense   = useExpenseStore((s) => s.updateExpense);
   const deleteExpense   = useExpenseStore((s) => s.deleteExpense);
+  const trips           = useTripStore((s) => s.trips);
 
   const [expense, setExpense]               = useState<Expense | null>(null);
   const [loading, setLoading]               = useState(true);
@@ -161,6 +163,9 @@ export default function ExpenseDetailScreen() {
         label="Payment Method"
         value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod}
       />
+      {expense.workTripId
+        ? <Field label="Trip" value={trips.find((t) => t.id === expense.workTripId)?.name ?? '—'} />
+        : null}
       {expense.notes ? <Field label="Notes" value={expense.notes} /> : null}
 
       <View style={styles.divider} />
