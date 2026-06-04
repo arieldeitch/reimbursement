@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { TripStatusBadge } from '@/components/TripStatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
+import type { ExpenseStatus } from '@/types/expense';
 import type { WorkTrip } from '@/types/trip';
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -67,6 +68,15 @@ export default function TripDetailScreen() {
 
   const expenseTotal    = useMemo(() => tripExpenses.reduce((sum, e) => sum + e.amount, 0), [tripExpenses]);
   const expenseCurrency = tripExpenses[0]?.currency ?? 'USD';
+
+  const statusTotals = useMemo(() => {
+    const map: Partial<Record<ExpenseStatus, { count: number; amount: number }>> = {};
+    tripExpenses.forEach((e) => {
+      const prev = map[e.status] ?? { count: 0, amount: 0 };
+      map[e.status] = { count: prev.count + 1, amount: prev.amount + e.amount };
+    });
+    return map;
+  }, [tripExpenses]);
 
   const handleEdit = () => {
     if (!trip) return;
@@ -147,6 +157,23 @@ export default function TripDetailScreen() {
           </Text>
         )}
       </View>
+
+      {tripExpenses.length > 0 && (
+        <View style={styles.statusSummary}>
+          {(['unsubmitted', 'submitted', 'approved', 'paid', 'rejected'] as const).map((s) => {
+            const data = statusTotals[s];
+            if (!data) return null;
+            return (
+              <View key={s} style={styles.statusSummaryRow}>
+                <StatusBadge status={s} />
+                <Text style={styles.statusSummaryText}>
+                  {data.count} · {expenseCurrency} {data.amount.toFixed(2)}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       {tripExpenses.length === 0 ? (
         <Text style={styles.noExpenses}>No expenses assigned to this trip.</Text>
@@ -274,6 +301,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#aaa',
     marginBottom: 4,
+  },
+  statusSummary: {
+    gap: 6,
+    marginBottom: 16,
+  },
+  statusSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statusSummaryText: {
+    fontSize: 13,
+    color: '#555',
   },
   expenseRow: {
     flexDirection: 'row',

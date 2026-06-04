@@ -14,6 +14,7 @@ import { BatchStatusBadge } from '@/components/BatchStatusBadge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
+import { useTripStore } from '@/store/tripSlice';
 import type { BatchStatus, ReimbursementBatch } from '@/types/batch';
 
 const BATCH_STATUS_OPTIONS: { value: BatchStatus; label: string }[] = [
@@ -39,6 +40,7 @@ export default function BatchDetailScreen() {
   const deleteBatch          = useBatchStore((s) => s.deleteBatch);
   const expenses             = useExpenseStore((s) => s.expenses);
   const assignExpenseToBatch = useExpenseStore((s) => s.assignExpenseToBatch);
+  const trips                = useTripStore((s) => s.trips);
 
   const [batch, setBatch]       = useState<ReimbursementBatch | null>(null);
   const [loading, setLoading]   = useState(true);
@@ -220,6 +222,11 @@ export default function BatchDetailScreen() {
                   {expense.currency} {expense.amount.toFixed(2)}
                 </Text>
               </View>
+              {expense.workTripId && (
+                <Text style={styles.expenseRowTrip}>
+                  {trips.find((t) => t.id === expense.workTripId)?.name}
+                </Text>
+              )}
             </Pressable>
             <Pressable style={styles.removeButton} onPress={() => handleRemove(expense.id)}>
               <Text style={styles.removeButtonText}>Remove</Text>
@@ -251,6 +258,11 @@ export default function BatchDetailScreen() {
                     {expense.currency} {expense.amount.toFixed(2)}
                   </Text>
                 </View>
+                {expense.workTripId && (
+                  <Text style={styles.expenseRowTrip}>
+                    {trips.find((t) => t.id === expense.workTripId)?.name}
+                  </Text>
+                )}
               </View>
               <Pressable style={styles.addButton} onPress={() => handleAssign(expense.id)}>
                 <Text style={styles.addButtonText}>+ Add</Text>
@@ -437,6 +449,11 @@ const styles = StyleSheet.create({
   expenseRowAmount: {
     fontSize: 13,
     color: '#555',
+  },
+  expenseRowTrip: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
   },
   removeButton: {
     paddingVertical: 6,

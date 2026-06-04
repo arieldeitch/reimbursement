@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { StatusBadge } from '@/components/StatusBadge';
+import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
 import type { Expense, ExpenseStatus } from '@/types/expense';
@@ -39,12 +40,28 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+function LinkField({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.field, pressed && styles.fieldPressed]}
+      onPress={onPress}
+    >
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.fieldLinkRow}>
+        <Text style={[styles.fieldValue, styles.fieldLinkValue]}>{value || '—'}</Text>
+        <Text style={styles.fieldLinkChevron}>›</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function ExpenseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const getExpenseById  = useExpenseStore((s) => s.getExpenseById);
   const updateExpense   = useExpenseStore((s) => s.updateExpense);
   const deleteExpense   = useExpenseStore((s) => s.deleteExpense);
   const trips           = useTripStore((s) => s.trips);
+  const batches         = useBatchStore((s) => s.batches);
 
   const [expense, setExpense]               = useState<Expense | null>(null);
   const [loading, setLoading]               = useState(true);
@@ -163,9 +180,20 @@ export default function ExpenseDetailScreen() {
         label="Payment Method"
         value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod}
       />
-      {expense.workTripId
-        ? <Field label="Trip" value={trips.find((t) => t.id === expense.workTripId)?.name ?? '—'} />
-        : null}
+      {expense.workTripId && (
+        <LinkField
+          label="Trip"
+          value={trips.find((t) => t.id === expense.workTripId)?.name ?? '—'}
+          onPress={() => router.push(`/trip/${expense.workTripId}`)}
+        />
+      )}
+      {expense.reimbursementBatchId && (
+        <LinkField
+          label="Batch"
+          value={batches.find((b) => b.id === expense.reimbursementBatchId)?.name ?? '—'}
+          onPress={() => router.push(`/batch/${expense.reimbursementBatchId}`)}
+        />
+      )}
       {expense.notes ? <Field label="Notes" value={expense.notes} /> : null}
 
       <View style={styles.divider} />
@@ -292,6 +320,25 @@ const styles = StyleSheet.create({
   fieldValue: {
     fontSize: 16,
     color: '#111',
+  },
+  fieldPressed: {
+    backgroundColor: '#f0f4ff',
+    borderRadius: 6,
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
+  },
+  fieldLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  fieldLinkValue: {
+    color: '#2563EB',
+  },
+  fieldLinkChevron: {
+    fontSize: 20,
+    color: '#2563EB',
+    lineHeight: 22,
   },
   primaryActions: {
     flexDirection: 'row',

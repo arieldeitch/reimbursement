@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 
+import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
 import {
@@ -28,6 +29,7 @@ export default function EditExpenseScreen() {
   const getExpenseById = useExpenseStore((s) => s.getExpenseById);
   const updateExpense  = useExpenseStore((s) => s.updateExpense);
   const trips          = useTripStore((s) => s.trips);
+  const batches        = useBatchStore((s) => s.batches);
 
   const [original, setOriginal] = useState<Expense | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,8 +41,9 @@ export default function EditExpenseScreen() {
   const [date, setDate] = useState('');
   const [category, setCategory] = useState<ExpenseCategory>('other');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('personal_card');
-  const [notes, setNotes]           = useState('');
-  const [workTripId, setWorkTripId] = useState<string | undefined>(undefined);
+  const [notes, setNotes]                       = useState('');
+  const [workTripId, setWorkTripId]             = useState<string | undefined>(undefined);
+  const [reimbursementBatchId, setReimbursementBatchId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!id) {
@@ -58,6 +61,7 @@ export default function EditExpenseScreen() {
         setPaymentMethod(found.paymentMethod);
         setNotes(found.notes ?? '');
         setWorkTripId(found.workTripId);
+        setReimbursementBatchId(found.reimbursementBatchId);
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -79,6 +83,7 @@ export default function EditExpenseScreen() {
         paymentMethod,
         notes: notes.trim() || undefined,
         workTripId,
+        reimbursementBatchId,
       });
       router.back();
     } catch (e) {
@@ -216,6 +221,30 @@ export default function EditExpenseScreen() {
                 numberOfLines={1}
               >
                 {trip.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <Text style={styles.label}>Batch (optional)</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+          <Pressable
+            style={[styles.chip, !reimbursementBatchId && styles.chipActive]}
+            onPress={() => setReimbursementBatchId(undefined)}
+          >
+            <Text style={[styles.chipText, !reimbursementBatchId && styles.chipTextActive]}>None</Text>
+          </Pressable>
+          {batches.map((batch) => (
+            <Pressable
+              key={batch.id}
+              style={[styles.chip, reimbursementBatchId === batch.id && styles.chipActive]}
+              onPress={() => setReimbursementBatchId(batch.id)}
+            >
+              <Text
+                style={[styles.chipText, reimbursementBatchId === batch.id && styles.chipTextActive]}
+                numberOfLines={1}
+              >
+                {batch.name}
               </Text>
             </Pressable>
           ))}
