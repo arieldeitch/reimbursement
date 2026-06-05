@@ -15,12 +15,12 @@ export interface TripSummaryReport {
   generatedAt: string;
   expenses: {
     total: number;
-    totalAmount: number;
+    /** Per-currency totals. Never aggregate across currencies. */
+    byCurrency: Record<string, { count: number; amount: number }>;
     withReceipt: number;
     missingReceipt: number;
-    byStatus: Partial<Record<ExpenseStatus, { count: number; amount: number }>>;
-    byCurrency: Record<string, { count: number; amount: number }>;
-    byCategory: Partial<Record<ExpenseCategory, { count: number; amount: number }>>;
+    byStatus: Partial<Record<ExpenseStatus, { count: number; byCurrency: Record<string, number> }>>;
+    byCategory: Partial<Record<ExpenseCategory, { count: number; byCurrency: Record<string, number> }>>;
     rows: Expense[];
   };
 }
@@ -31,21 +31,28 @@ export function tripSummaryReportData(trip: WorkTrip, expenses: Expense[]): Trip
   const byStatus: TripSummaryReport['expenses']['byStatus'] = {};
   const byCurrency: TripSummaryReport['expenses']['byCurrency'] = {};
   const byCategory: TripSummaryReport['expenses']['byCategory'] = {};
-  let totalAmount = 0;
   let withReceipt = 0;
 
   for (const e of sorted) {
-    totalAmount += e.amount;
     if (e.hasReceipt) withReceipt++;
 
-    const prevStatus = byStatus[e.status] ?? { count: 0, amount: 0 };
-    byStatus[e.status] = { count: prevStatus.count + 1, amount: prevStatus.amount + e.amount };
+    // byStatus: group amounts by currency within each status
+    const prevStatus = byStatus[e.status] ?? { count: 0, byCurrency: {} };
+    byStatus[e.status] = {
+      count: prevStatus.count + 1,
+      byCurrency: { ...prevStatus.byCurrency, [e.currency]: (prevStatus.byCurrency[e.currency] ?? 0) + e.amount },
+    };
 
+    // byCurrency: top-level per-currency totals (the authoritative total view)
     const prevCurrency = byCurrency[e.currency] ?? { count: 0, amount: 0 };
     byCurrency[e.currency] = { count: prevCurrency.count + 1, amount: prevCurrency.amount + e.amount };
 
-    const prevCategory = byCategory[e.category] ?? { count: 0, amount: 0 };
-    byCategory[e.category] = { count: prevCategory.count + 1, amount: prevCategory.amount + e.amount };
+    // byCategory: group amounts by currency within each category
+    const prevCategory = byCategory[e.category] ?? { count: 0, byCurrency: {} };
+    byCategory[e.category] = {
+      count: prevCategory.count + 1,
+      byCurrency: { ...prevCategory.byCurrency, [e.currency]: (prevCategory.byCurrency[e.currency] ?? 0) + e.amount },
+    };
   }
 
   return {
@@ -61,11 +68,10 @@ export function tripSummaryReportData(trip: WorkTrip, expenses: Expense[]): Trip
     generatedAt: new Date().toISOString(),
     expenses: {
       total:          sorted.length,
-      totalAmount,
+      byCurrency,
       withReceipt,
       missingReceipt: sorted.length - withReceipt,
       byStatus,
-      byCurrency,
       byCategory,
       rows: sorted,
     },
@@ -84,11 +90,11 @@ export interface BatchSummaryReport {
   generatedAt: string;
   expenses: {
     total: number;
-    totalAmount: number;
+    /** Per-currency totals. Never aggregate across currencies. */
+    byCurrency: Record<string, { count: number; amount: number }>;
     withReceipt: number;
     missingReceipt: number;
     unsubmitted: number;
-    byCurrency: Record<string, { count: number; amount: number }>;
     rows: Array<Expense & { tripName?: string }>;
   };
 }
@@ -102,12 +108,10 @@ export function batchSummaryReportData(
   const sorted = [...expenses].sort((a, b) => a.date.localeCompare(b.date));
 
   const byCurrency: BatchSummaryReport['expenses']['byCurrency'] = {};
-  let totalAmount = 0;
   let withReceipt = 0;
   let unsubmitted = 0;
 
   for (const e of sorted) {
-    totalAmount += e.amount;
     if (e.hasReceipt) withReceipt++;
     if (e.status === 'unsubmitted') unsubmitted++;
 
@@ -132,11 +136,10 @@ export function batchSummaryReportData(
     generatedAt: new Date().toISOString(),
     expenses: {
       total:          sorted.length,
-      totalAmount,
+      byCurrency,
       withReceipt,
       missingReceipt: sorted.length - withReceipt,
       unsubmitted,
-      byCurrency,
       rows,
     },
   };

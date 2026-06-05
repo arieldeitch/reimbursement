@@ -11,7 +11,7 @@ import {
 
 import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
-import { expenseSelectors } from '@/store/selectors';
+import { expenseSelectors, totalsByCurrencyAndStatus } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
 
 const STATUS_CARDS = [
@@ -32,19 +32,19 @@ export default function DashboardScreen() {
 
   const stats = useMemo(() => ({
     unsubmitted: {
-      total: expenseSelectors.totalUnsubmitted(expenses),
+      byCurrency: totalsByCurrencyAndStatus(expenses, 'unsubmitted'),
       count: expenseSelectors.countUnsubmitted(expenses),
     },
     submitted: {
-      total: expenseSelectors.totalSubmitted(expenses),
+      byCurrency: totalsByCurrencyAndStatus(expenses, 'submitted'),
       count: expenseSelectors.countSubmitted(expenses),
     },
     approved: {
-      total: expenseSelectors.totalApproved(expenses),
+      byCurrency: totalsByCurrencyAndStatus(expenses, 'approved'),
       count: expenseSelectors.countApproved(expenses),
     },
     paid: {
-      total: expenseSelectors.totalPaid(expenses),
+      byCurrency: totalsByCurrencyAndStatus(expenses, 'paid'),
       count: expenseSelectors.countPaid(expenses),
     },
   }), [expenses]);
@@ -71,7 +71,17 @@ export default function DashboardScreen() {
                 style={[styles.card, { backgroundColor: bg, borderLeftColor: accent }, isVeryWide && styles.cardFourCol]}
               >
                 <Text style={[styles.cardLabel, { color: accent }]}>{label}</Text>
-                <Text style={styles.cardAmount}>{s.total.toFixed(2)}</Text>
+                {Object.keys(s.byCurrency).length === 0 ? (
+                  <Text style={styles.cardAmount}>—</Text>
+                ) : (
+                  Object.entries(s.byCurrency)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([currency, amount]) => (
+                      <Text key={currency} style={styles.cardAmount}>
+                        {currency} {amount.toFixed(2)}
+                      </Text>
+                    ))
+                )}
                 <Text style={styles.cardCount}>
                   {s.count} expense{s.count !== 1 ? 's' : ''}
                 </Text>

@@ -15,7 +15,7 @@ import { BatchStatusBadge } from '@/components/BatchStatusBadge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
-import { batchReadiness } from '@/store/selectors';
+import { batchReadiness, totalsByCurrency } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
 import type { BatchStatus, ReimbursementBatch } from '@/types/batch';
 
@@ -88,8 +88,7 @@ export default function BatchDetailScreen() {
     () => expenses.filter((e) => !e.reimbursementBatchId),
     [expenses],
   );
-  const expenseTotal    = useMemo(() => batchExpenses.reduce((s, e) => s + e.amount, 0), [batchExpenses]);
-  const expenseCurrency = batchExpenses[0]?.currency ?? 'USD';
+  const currencyTotals = useMemo(() => totalsByCurrency(batchExpenses), [batchExpenses]);
 
   const readiness = useMemo(
     () => (batch ? batchReadiness(expenses, batch.id) : null),
@@ -300,7 +299,15 @@ export default function BatchDetailScreen() {
           Assigned Expenses{batchExpenses.length > 0 ? ` (${batchExpenses.length})` : ''}
         </Text>
         {batchExpenses.length > 0 && (
-          <Text style={styles.sectionTotal}>{expenseCurrency} {expenseTotal.toFixed(2)}</Text>
+          <View style={styles.sectionTotals}>
+            {Object.entries(currencyTotals)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([currency, amount]) => (
+                <Text key={currency} style={styles.sectionTotal}>
+                  {currency} {amount.toFixed(2)}
+                </Text>
+              ))}
+          </View>
         )}
       </View>
 
@@ -526,6 +533,9 @@ const styles = StyleSheet.create({
     color: '#999',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
+  },
+  sectionTotals: {
+    alignItems: 'flex-end',
   },
   sectionTotal: {
     fontSize: 14,

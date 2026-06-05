@@ -1,29 +1,42 @@
 import type { Expense, ExpenseStatus } from '@/types/expense';
 
-function sumByStatus(expenses: Expense[], status: ExpenseStatus): number {
-  return expenses
-    .filter((e) => e.status === status)
-    .reduce((sum, e) => sum + e.amount, 0);
+// ─── Currency-safe types ───────────────────────────────────────────────────
+
+/** Maps ISO currency code → total amount.  Never sum across keys. */
+export type CurrencyMap = Record<string, number>;
+
+// ─── Currency-aware aggregation ───────────────────────────────────────────
+
+export function totalsByCurrency(expenses: Expense[]): CurrencyMap {
+  const map: CurrencyMap = {};
+  for (const e of expenses) {
+    map[e.currency] = (map[e.currency] ?? 0) + e.amount;
+  }
+  return map;
 }
+
+export function totalsByCurrencyAndStatus(
+  expenses: Expense[],
+  status: ExpenseStatus,
+): CurrencyMap {
+  return totalsByCurrency(expenses.filter((e) => e.status === status));
+}
+
+// ─── Count selectors (currency-safe — counts are unit-less) ───────────────
 
 function countByStatus(expenses: Expense[], status: ExpenseStatus): number {
   return expenses.filter((e) => e.status === status).length;
 }
 
 export const expenseSelectors = {
-  totalUnsubmitted: (expenses: Expense[]) => sumByStatus(expenses, 'unsubmitted'),
-  totalSubmitted:   (expenses: Expense[]) => sumByStatus(expenses, 'submitted'),
-  totalApproved:    (expenses: Expense[]) => sumByStatus(expenses, 'approved'),
-  totalPaid:        (expenses: Expense[]) => sumByStatus(expenses, 'paid'),
-
   countUnsubmitted: (expenses: Expense[]) => countByStatus(expenses, 'unsubmitted'),
   countSubmitted:   (expenses: Expense[]) => countByStatus(expenses, 'submitted'),
   countApproved:    (expenses: Expense[]) => countByStatus(expenses, 'approved'),
   countPaid:        (expenses: Expense[]) => countByStatus(expenses, 'paid'),
-
-  totalByStatus: sumByStatus,
   countByStatus,
 };
+
+// ─── Readiness (counts only — currency-safe) ─────────────────────────────
 
 export interface TripReadiness {
   total: number;

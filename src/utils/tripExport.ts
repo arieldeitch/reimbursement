@@ -69,11 +69,9 @@ export function buildTripCsv(trip: WorkTrip, expenses: Expense[]): string {
 
   lines.push('');
 
-  // Summary block
-  const grandTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+  // Summary block (no cross-currency total — see CURRENCY TOTALS below)
   const withReceipt = expenses.filter((e) => e.hasReceipt).length;
   lines.push(row('SUMMARY'));
-  lines.push(row('Total Amount:', grandTotal.toFixed(2)));
   lines.push(row('Expense Count:', expenses.length));
   lines.push(row('Receipts Present:', withReceipt));
   lines.push(row('Receipts Missing:', expenses.length - withReceipt));
@@ -92,7 +90,7 @@ export function buildTripCsv(trip: WorkTrip, expenses: Expense[]): string {
   }
   const currencies = Object.keys(byCurrency);
   if (currencies.length > 0) {
-    lines.push(row('CURRENCY BREAKDOWN'));
+    lines.push(row('CURRENCY TOTALS'));
     lines.push(row('Currency', 'Amount', 'Count'));
     for (const currency of currencies) {
       const { amount, count } = byCurrency[currency];

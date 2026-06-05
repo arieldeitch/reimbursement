@@ -14,7 +14,7 @@ import {
 import { StatusBadge } from '@/components/StatusBadge';
 import { TripStatusBadge } from '@/components/TripStatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
-import { tripReadiness } from '@/store/selectors';
+import { tripReadiness, totalsByCurrency, type CurrencyMap } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
 import type { ExpenseStatus } from '@/types/expense';
 import type { WorkTrip } from '@/types/trip';
@@ -81,14 +81,16 @@ export default function TripDetailScreen() {
     [expenses, trip],
   );
 
-  const expenseTotal    = useMemo(() => tripExpenses.reduce((sum, e) => sum + e.amount, 0), [tripExpenses]);
-  const expenseCurrency = tripExpenses[0]?.currency ?? 'USD';
+  const currencyTotals = useMemo(() => totalsByCurrency(tripExpenses), [tripExpenses]);
 
   const statusTotals = useMemo(() => {
-    const map: Partial<Record<ExpenseStatus, { count: number; amount: number }>> = {};
+    const map: Partial<Record<ExpenseStatus, { count: number; byCurrency: CurrencyMap }>> = {};
     tripExpenses.forEach((e) => {
-      const prev = map[e.status] ?? { count: 0, amount: 0 };
-      map[e.status] = { count: prev.count + 1, amount: prev.amount + e.amount };
+      const prev = map[e.status] ?? { count: 0, byCurrency: {} };
+      map[e.status] = {
+        count: prev.count + 1,
+        byCurrency: { ...prev.byCurrency, [e.currency]: (prev.byCurrency[e.currency] ?? 0) + e.amount },
+      };
     });
     return map;
   }, [tripExpenses]);
@@ -249,9 +251,15 @@ export default function TripDetailScreen() {
           Assigned Expenses{tripExpenses.length > 0 ? ` (${tripExpenses.length})` : ''}
         </Text>
         {tripExpenses.length > 0 && (
-          <Text style={styles.sectionTotal}>
-            {expenseCurrency} {expenseTotal.toFixed(2)}
-          </Text>
+          <View style={styles.sectionTotals}>
+            {Object.entries(currencyTotals)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([currency, amount]) => (
+                <Text key={currency} style={styles.sectionTotal}>
+                  {currency} {amount.toFixed(2)}
+                </Text>
+              ))}
+          </View>
         )}
       </View>
 
@@ -264,7 +272,11 @@ export default function TripDetailScreen() {
               <View key={s} style={styles.statusSummaryRow}>
                 <StatusBadge status={s} />
                 <Text style={styles.statusSummaryText}>
-                  {data.count} · {expenseCurrency} {data.amount.toFixed(2)}
+                  {data.count} ·{' '}
+                  {Object.entries(data.byCurrency)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([c, a]) => `${c} ${a.toFixed(2)}`)
+                    .join(' · ')}
                 </Text>
               </View>
             );
@@ -443,6 +455,9 @@ const styles = StyleSheet.create({
     color: '#999',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
+  },
+  sectionTotals: {
+    alignItems: 'flex-end',
   },
   sectionTotal: {
     fontSize: 14,
