@@ -48,7 +48,7 @@ export function buildTripCsv(trip: WorkTrip, expenses: Expense[]): string {
   lines.push('');
 
   // Column headers
-  lines.push(row('Date', 'Title', 'Category', 'Amount', 'Currency', 'Payment Method', 'Status', 'Notes'));
+  lines.push(row('Date', 'Title', 'Category', 'Amount', 'Currency', 'Payment Method', 'Status', 'Has Receipt', 'Missing Reason', 'Notes'));
 
   // One row per expense, sorted by date
   const sorted = [...expenses].sort((a, b) => a.date.localeCompare(b.date));
@@ -61,6 +61,8 @@ export function buildTripCsv(trip: WorkTrip, expenses: Expense[]): string {
       e.currency,
       PAYMENT_LABELS[e.paymentMethod] ?? e.paymentMethod,
       capitalize(e.status),
+      e.hasReceipt ? 'Yes' : 'No',
+      e.receiptMissingReason ?? '',
       e.notes ?? '',
     ));
   }
@@ -69,9 +71,12 @@ export function buildTripCsv(trip: WorkTrip, expenses: Expense[]): string {
 
   // Summary block
   const grandTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const withReceipt = expenses.filter((e) => e.hasReceipt).length;
   lines.push(row('SUMMARY'));
   lines.push(row('Total Amount:', grandTotal.toFixed(2)));
   lines.push(row('Expense Count:', expenses.length));
+  lines.push(row('Receipts Present:', withReceipt));
+  lines.push(row('Receipts Missing:', expenses.length - withReceipt));
   lines.push('');
 
   // Currency breakdown

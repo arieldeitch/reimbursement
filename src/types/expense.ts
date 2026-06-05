@@ -23,6 +23,8 @@ export interface Expense extends Entity {
   paymentMethod: PaymentMethod;
   status: ExpenseStatus;
   notes?: string;
+  hasReceipt: boolean;
+  receiptMissingReason?: string;
   deletedAt: string | null;
   workTripId?: string;
   reimbursementBatchId?: string;

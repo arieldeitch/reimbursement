@@ -23,7 +23,8 @@ const STATUS_CARDS = [
 
 export default function DashboardScreen() {
   const { width } = useWindowDimensions();
-  const isWide = width >= 768;
+  const isWide     = width >= 768;
+  const isVeryWide = width >= 1100;
 
   const expenses = useExpenseStore((s) => s.expenses);
   const trips    = useTripStore((s) => s.trips);
@@ -67,7 +68,7 @@ export default function DashboardScreen() {
             return (
               <View
                 key={key}
-                style={[styles.card, { backgroundColor: bg, borderLeftColor: accent }]}
+                style={[styles.card, { backgroundColor: bg, borderLeftColor: accent }, isVeryWide && styles.cardFourCol]}
               >
                 <Text style={[styles.cardLabel, { color: accent }]}>{label}</Text>
                 <Text style={styles.cardAmount}>{s.total.toFixed(2)}</Text>
@@ -166,6 +167,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderRadius: 8,
     padding: 16,
+  },
+  cardFourCol: {
+    flexBasis: '22%',
   },
   cardLabel: {
     fontSize: 11,

@@ -22,6 +22,12 @@ async function _runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
   if (!expCols.has('reimbursement_batch_id')) {
     await db.runAsync('ALTER TABLE expenses ADD COLUMN reimbursement_batch_id TEXT');
   }
+  if (!expCols.has('has_receipt')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN has_receipt INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!expCols.has('receipt_missing_reason')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN receipt_missing_reason TEXT');
+  }
 }
 
 async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -39,6 +45,8 @@ async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       payment_method TEXT NOT NULL,
       status        TEXT NOT NULL DEFAULT 'unsubmitted',
       notes         TEXT,
+      has_receipt   INTEGER NOT NULL DEFAULT 0,
+      receipt_missing_reason TEXT,
       deleted_at    TEXT,
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL

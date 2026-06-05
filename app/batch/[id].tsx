@@ -8,12 +8,14 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import { BatchStatusBadge } from '@/components/BatchStatusBadge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
+import { batchReadiness } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
 import type { BatchStatus, ReimbursementBatch } from '@/types/batch';
 
@@ -33,7 +35,18 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ReadinessRow({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <Text style={ok ? styles.readinessOk : styles.readinessWarn}>
+      {ok ? '✓' : '⚠'} {label}
+    </Text>
+  );
+}
+
 export default function BatchDetailScreen() {
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const getBatchById         = useBatchStore((s) => s.getBatchById);
   const updateBatch          = useBatchStore((s) => s.updateBatch);
@@ -77,6 +90,11 @@ export default function BatchDetailScreen() {
   );
   const expenseTotal    = useMemo(() => batchExpenses.reduce((s, e) => s + e.amount, 0), [batchExpenses]);
   const expenseCurrency = batchExpenses[0]?.currency ?? 'USD';
+
+  const readiness = useMemo(
+    () => (batch ? batchReadiness(expenses, batch.id) : null),
+    [expenses, batch],
+  );
 
   const handleStatusChange = async (newStatus: BatchStatus) => {
     if (!batch || changingStatus) return;
@@ -170,9 +188,8 @@ export default function BatchDetailScreen() {
     );
   }
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-
+  const infoPanel = (
+    <>
       <Text style={styles.title}>{batch.name}</Text>
       <View style={styles.badgeRow}>
         <BatchStatusBadge status={batch.status} />
@@ -196,84 +213,31 @@ export default function BatchDetailScreen() {
 
       {batch.notes ? <Field label="Notes" value={batch.notes} /> : null}
 
-      {/* Assigned Expenses */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>
-          Assigned Expenses{batchExpenses.length > 0 ? ` (${batchExpenses.length})` : ''}
-        </Text>
-        {batchExpenses.length > 0 && (
-          <Text style={styles.sectionTotal}>{expenseCurrency} {expenseTotal.toFixed(2)}</Text>
-        )}
-      </View>
-
-      {batchExpenses.length === 0 ? (
-        <Text style={styles.emptyText}>No expenses assigned yet.</Text>
-      ) : (
-        batchExpenses.map((expense) => (
-          <View key={expense.id} style={styles.expenseRow}>
-            <Pressable
-              style={styles.expenseRowLeft}
-              onPress={() => router.push(`/expense/${expense.id}`)}
-            >
-              <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
-              <View style={styles.expenseRowMeta}>
-                <StatusBadge status={expense.status} />
-                <Text style={styles.expenseRowAmount}>
-                  {expense.currency} {expense.amount.toFixed(2)}
-                </Text>
-              </View>
-              {expense.workTripId && (
-                <Text style={styles.expenseRowTrip}>
-                  {trips.find((t) => t.id === expense.workTripId)?.name}
-                </Text>
-              )}
-            </Pressable>
-            <Pressable style={styles.removeButton} onPress={() => handleRemove(expense.id)}>
-              <Text style={styles.removeButtonText}>Remove</Text>
-            </Pressable>
+      {readiness && readiness.total > 0 && (
+        <>
+          <Text style={styles.sectionLabel}>Batch Readiness</Text>
+          <View style={styles.readinessBlock}>
+            <ReadinessRow ok label={`${readiness.total} expense${readiness.total !== 1 ? 's' : ''} assigned`} />
+            <ReadinessRow
+              ok={readiness.missingReceipt === 0}
+              label={
+                readiness.missingReceipt === 0
+                  ? 'All receipts present'
+                  : `${readiness.missingReceipt} expense${readiness.missingReceipt !== 1 ? 's' : ''} missing receipts`
+              }
+            />
+            <ReadinessRow
+              ok={readiness.unsubmitted === 0}
+              label={
+                readiness.unsubmitted === 0
+                  ? 'All expenses submitted'
+                  : `${readiness.unsubmitted} expense${readiness.unsubmitted !== 1 ? 's' : ''} still unsubmitted`
+              }
+            />
           </View>
-        ))
+          <View style={styles.divider} />
+        </>
       )}
-
-      {/* Add Expenses toggle */}
-      <View style={styles.divider} />
-
-      <Pressable style={styles.addToggle} onPress={() => setShowAdd((v) => !v)}>
-        <Text style={styles.addToggleText}>
-          {showAdd ? '▲ Hide unbatched expenses' : '▼ Add expenses to this batch'}
-        </Text>
-      </Pressable>
-
-      {showAdd && (
-        unbatchedExpenses.length === 0 ? (
-          <Text style={styles.emptyText}>All active expenses are already assigned.</Text>
-        ) : (
-          unbatchedExpenses.map((expense) => (
-            <View key={expense.id} style={styles.expenseRow}>
-              <View style={styles.expenseRowLeft}>
-                <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
-                <View style={styles.expenseRowMeta}>
-                  <StatusBadge status={expense.status} />
-                  <Text style={styles.expenseRowAmount}>
-                    {expense.currency} {expense.amount.toFixed(2)}
-                  </Text>
-                </View>
-                {expense.workTripId && (
-                  <Text style={styles.expenseRowTrip}>
-                    {trips.find((t) => t.id === expense.workTripId)?.name}
-                  </Text>
-                )}
-              </View>
-              <Pressable style={styles.addButton} onPress={() => handleAssign(expense.id)}>
-                <Text style={styles.addButtonText}>+ Add</Text>
-              </Pressable>
-            </View>
-          ))
-        )
-      )}
-
-      {/* Action buttons */}
-      <View style={styles.divider} />
 
       <View style={styles.primaryActions}>
         <Pressable
@@ -326,7 +290,116 @@ export default function BatchDetailScreen() {
           {deleting ? 'Deleting…' : 'Delete'}
         </Text>
       </Pressable>
+    </>
+  );
 
+  const expensesPanel = (
+    <>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>
+          Assigned Expenses{batchExpenses.length > 0 ? ` (${batchExpenses.length})` : ''}
+        </Text>
+        {batchExpenses.length > 0 && (
+          <Text style={styles.sectionTotal}>{expenseCurrency} {expenseTotal.toFixed(2)}</Text>
+        )}
+      </View>
+
+      {batchExpenses.length === 0 ? (
+        <Text style={styles.emptyText}>No expenses assigned yet.</Text>
+      ) : (
+        batchExpenses.map((expense) => (
+          <View key={expense.id} style={styles.expenseRow}>
+            <Pressable
+              style={styles.expenseRowLeft}
+              onPress={() => router.push(`/expense/${expense.id}`)}
+            >
+              <View style={styles.expenseRowTitleRow}>
+                <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
+                {!expense.hasReceipt && (
+                  <Text style={styles.expenseRowNoReceipt}>⚠</Text>
+                )}
+              </View>
+              <View style={styles.expenseRowMeta}>
+                <StatusBadge status={expense.status} />
+                <Text style={styles.expenseRowAmount}>
+                  {expense.currency} {expense.amount.toFixed(2)}
+                </Text>
+              </View>
+              {expense.workTripId && (
+                <Text style={styles.expenseRowTrip}>
+                  {trips.find((t) => t.id === expense.workTripId)?.name}
+                </Text>
+              )}
+            </Pressable>
+            <Pressable style={styles.removeButton} onPress={() => handleRemove(expense.id)}>
+              <Text style={styles.removeButtonText}>Remove</Text>
+            </Pressable>
+          </View>
+        ))
+      )}
+
+      <View style={styles.divider} />
+
+      <Pressable style={styles.addToggle} onPress={() => setShowAdd((v) => !v)}>
+        <Text style={styles.addToggleText}>
+          {showAdd ? '▲ Hide unbatched expenses' : '▼ Add expenses to this batch'}
+        </Text>
+      </Pressable>
+
+      {showAdd && (
+        unbatchedExpenses.length === 0 ? (
+          <Text style={styles.emptyText}>All active expenses are already assigned.</Text>
+        ) : (
+          unbatchedExpenses.map((expense) => (
+            <View key={expense.id} style={styles.expenseRow}>
+              <View style={styles.expenseRowLeft}>
+                <View style={styles.expenseRowTitleRow}>
+                  <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
+                  {!expense.hasReceipt && (
+                    <Text style={styles.expenseRowNoReceipt}>⚠</Text>
+                  )}
+                </View>
+                <View style={styles.expenseRowMeta}>
+                  <StatusBadge status={expense.status} />
+                  <Text style={styles.expenseRowAmount}>
+                    {expense.currency} {expense.amount.toFixed(2)}
+                  </Text>
+                </View>
+                {expense.workTripId && (
+                  <Text style={styles.expenseRowTrip}>
+                    {trips.find((t) => t.id === expense.workTripId)?.name}
+                  </Text>
+                )}
+              </View>
+              <Pressable style={styles.addButton} onPress={() => handleAssign(expense.id)}>
+                <Text style={styles.addButtonText}>+ Add</Text>
+              </Pressable>
+            </View>
+          ))
+        )
+      )}
+    </>
+  );
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, isWide && styles.contentWide]}
+    >
+      <View style={isWide ? styles.innerWide : undefined}>
+        {isWide ? (
+          <View style={styles.columnsWide}>
+            <View style={styles.leftColWide}>{infoPanel}</View>
+            <View style={styles.rightColWide}>{expensesPanel}</View>
+          </View>
+        ) : (
+          <>
+            {infoPanel}
+            <View style={styles.divider} />
+            {expensesPanel}
+          </>
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -362,6 +435,26 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 40,
+  },
+  contentWide: {
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 32,
+  },
+  innerWide: {
+    maxWidth: 1100,
+    width: '100%',
+  },
+  columnsWide: {
+    flexDirection: 'row',
+    gap: 48,
+    alignItems: 'flex-start',
+  },
+  leftColWide: {
+    flex: 2,
+  },
+  rightColWide: {
+    flex: 3,
   },
   title: {
     fontSize: 22,
@@ -399,6 +492,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111',
   },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#999',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  readinessBlock: {
+    gap: 6,
+    marginBottom: 12,
+  },
+  readinessOk: {
+    fontSize: 14,
+    color: '#059669',
+    fontWeight: '500',
+  },
+  readinessWarn: {
+    fontSize: 14,
+    color: '#D97706',
+    fontWeight: '600',
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -435,10 +550,20 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
+  expenseRowTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   expenseRowTitle: {
     fontSize: 15,
     fontWeight: '600',
     color: '#111',
+    flex: 1,
+  },
+  expenseRowNoReceipt: {
+    fontSize: 13,
+    color: '#D97706',
   },
   expenseRowMeta: {
     flexDirection: 'row',

@@ -17,26 +17,26 @@ Desktop Web (via Expo + Metro web bundler). Mobile remains a supported secondary
 ```
 app/                          ← Expo Router screens (file-system routing)
   _layout.tsx                 ← Root Stack; boots DB, loads all stores
-  index.tsx                   ← Dashboard (/) — status cards + quick actions
+  index.tsx                   ← Dashboard (/) — status cards, open items, quick actions
   expenses.tsx                ← Expense list (/expenses)
   add-expense.tsx             ← Add expense modal
-  edit-expense.tsx            ← Edit expense screen
-  expense/[id].tsx            ← Expense detail (LinkField to trip + batch)
+  edit-expense.tsx            ← Edit expense + receipt toggle + missing reason
+  expense/[id].tsx            ← Expense detail; receipt toggle; 2-col desktop layout
   trips.tsx                   ← Trip list (/trips)
   add-trip.tsx                ← Add trip modal
   edit-trip.tsx               ← Edit trip screen
-  trip/[id].tsx               ← Trip detail (status totals, expense list)
+  trip/[id].tsx               ← Trip detail; submission readiness; 2-col desktop layout
   batches.tsx                 ← Batch list (/batches)
   add-batch.tsx               ← Add batch modal
   edit-batch.tsx              ← Edit batch screen
-  batch/[id].tsx              ← Batch detail (expense list with trip names)
+  batch/[id].tsx              ← Batch detail; batch readiness; 2-col desktop layout
 
 src/
   db/
-    client.ts                 ← SQLite singleton, WAL mode, schema init (3 tables)
+    client.ts                 ← SQLite singleton, WAL, schema init, incremental migrations
   repositories/
     index.ts                  ← Repository<T> base interface
-    expenseRepository.ts      ← Full CRUD + soft delete + assignToBatch
+    expenseRepository.ts      ← Full CRUD + soft delete + assignToBatch + receipt fields
     tripRepository.ts         ← Full CRUD + soft delete
     batchRepository.ts        ← Full CRUD + soft delete
   store/
@@ -44,10 +44,10 @@ src/
     expenseSlice.ts           ← useExpenseStore
     tripSlice.ts              ← useTripStore
     batchSlice.ts             ← useBatchStore
-    selectors.ts              ← expenseSelectors (count + total by status)
+    selectors.ts              ← expenseSelectors; tripReadiness; batchReadiness
   types/
     entity.ts                 ← Entity base (id, createdAt, updatedAt)
-    expense.ts                ← Expense, ExpenseStatus, ExpenseCategory, PaymentMethod
+    expense.ts                ← Expense (+ hasReceipt, receiptMissingReason), ExpenseStatus, etc.
     trip.ts                   ← WorkTrip, TripStatus
     batch.ts                  ← ReimbursementBatch, BatchStatus
     index.ts                  ← Barrel re-export
@@ -55,13 +55,16 @@ src/
     StatusBadge.tsx           ← Expense status chip
     TripStatusBadge.tsx       ← Trip status chip
     BatchStatusBadge.tsx      ← Batch status chip
+  utils/
+    tripExport.ts             ← buildTripCsv + exportTripCsv (web Blob / native Share)
+    reportData.ts             ← tripSummaryReportData; batchSummaryReportData
 ```
 
 ### Layer rules
 
 ```
 Screen → useXxxStore → XxxRepository → SQLite
-           (Zustand)    (class singleton)  (expo-sqlite)
+           (Zustand)    (class singleton)   (expo-sqlite)
 ```
 
 No screen touches SQLite directly. No store holds raw SQL.
@@ -72,15 +75,15 @@ No screen touches SQLite directly. No store holds raw SQL.
 / (Dashboard)
   ├── /expenses      Expense list
   │     ├── /add-expense       modal
-  │     ├── /expense/[id]      detail
-  │     └── /edit-expense      edit
+  │     ├── /expense/[id]      detail + receipt toggle
+  │     └── /edit-expense      edit + receipt fields
   ├── /trips         Trip list
   │     ├── /add-trip          modal
-  │     ├── /trip/[id]         detail
+  │     ├── /trip/[id]         detail + readiness + CSV export
   │     └── /edit-trip         edit
   └── /batches       Batch list
         ├── /add-batch         modal
-        ├── /batch/[id]        detail
+        ├── /batch/[id]        detail + readiness
         └── /edit-batch        edit
 ```
 
@@ -100,91 +103,81 @@ No screen touches SQLite directly. No store holds raw SQL.
 
 - File: `reimbursement.db`
 - Mode: WAL + foreign keys on
-- Tables: `expenses`, `trips`, `batches`
-- Soft delete: `deleted_at` column on all tables
-- Cross-table FKs: `expenses.work_trip_id` → `trips.id`, `expenses.reimbursement_batch_id` → `batches.id`
+- Tables: `expenses`, `trips`, `reimbursement_batches`
+- Soft delete: `deleted_at` on all tables
+- Cross-table FKs on expenses: `work_trip_id`, `reimbursement_batch_id`
+- Receipt fields on expenses: `has_receipt INTEGER NOT NULL DEFAULT 0`, `receipt_missing_reason TEXT`
+- Migrations are additive and idempotent — safe to run on existing databases
 
 ---
 
 ## Completed Milestones
 
 ### Phase 1 — Foundation `31137b9`
-
-- Expo Router app with TypeScript, path alias `@/ → src/`
-- SQLite client singleton with `PRAGMA journal_mode = WAL`
-- `Repository<T>` base interface
-- `useAppStore` with `isDbReady` flag
-- Boot sequence in `_layout.tsx`: open DB → init repos → load data → set ready
-- `babel-preset-expo` dependency fix `152c571`
+Expo Router, TS, SQLite WAL, path alias `@/`, `useAppStore`, boot sequence.
 
 ### Phase 2A — Expense Creation `0524727`
-
-- `expenses` table with all fields including `deleted_at`
-- `ExpenseRepository`: `findAll`, `findById`, `save`, `delete` (soft)
-- `useExpenseStore`: `loadExpenses`, `addExpense`
-- Add Expense form: title, amount, currency, date, category chips, payment method chips, notes
-- Expense list on home screen with empty state
-- Expenses persist across app restarts
+Expenses table, `ExpenseRepository` full CRUD, `useExpenseStore`, Add Expense form.
 
 ### Phase 2B — Expense Detail Architecture `0316577`
-
-- `ExpenseRepository` extended: `getById`, `update`, `softDelete`
-- `useExpenseStore` extended: `getExpenseById` (cache-first), `updateExpense`, `deleteExpense`
-- Dynamic route `expense/[id].tsx` — read-only detail screen
+Expense detail screen, `getById`, `update`, `softDelete`.
 
 ### Phase 2C — Trip Domain Model `f8dde3c`
-
-- `WorkTrip` entity type, `TripStatus`, `TripRepository` skeleton
-- `Expense.workTripId?: string` FK field added to type
+`WorkTrip` type, `TripRepository` skeleton, `Expense.workTripId` FK typed.
 
 ### Phase 3A — Complete Expense CRUD `f11af10` `f6c0abf`
-
-- Edit form for an existing expense (pre-fill, validate, save via `updateExpense`)
-- Delete confirmation dialog → `deleteExpense` → `router.back()`
-- Status change picker → `updateExpense` with new status
-- All three placeholder buttons on the detail screen unblocked
+Edit form, delete confirmation, status change picker on detail screen.
 
 ### Phase 3B — Trip UI `03ef6e3` `0dec5c4`
-
-- `trips` table created in SQLite schema
-- `work_trip_id` column added to `expenses` table
-- `TripRepository` fully implemented: `list`, `getById`, `create`, `update`, `softDelete`
-- `useTripStore`: `loadTrips`, `addTrip`, `getTripById`, `updateTrip`, `deleteTrip`
-- Trip list (`/trips`), Add Trip modal, Edit Trip screen, Trip detail with expense list
-- Expense edit form: trip picker chip set; assignment persisted via `work_trip_id`
-- Trip detail: status totals section (per-status count + amount via `useMemo`)
+Trips table + `work_trip_id` migration, `TripRepository` full impl, `useTripStore`,
+trip list / add / edit / detail screens, trip picker in expense edit form.
 
 ### Phase 3C — Batch Management `041a325`
-
-- `batches` table created in SQLite schema
-- `reimbursement_batch_id` column added to `expenses` table
-- `BatchRepository`: full CRUD + soft delete + `assignExpense`
-- `useBatchStore`: full slice mirroring trip slice
-- Batch list (`/batches`), Add Batch modal, Edit Batch screen, Batch detail
-- Batch detail: expense list with trip name shown inline when `workTripId` is set
+Batches table + `reimbursement_batch_id` migration, `BatchRepository`, `useBatchStore`,
+batch list / add / edit / detail screens, batch picker in expense edit form.
 
 ### Phase 3D — Cross-domain Workflow + Dashboard Selectors `e40ba17`
+Expense detail LinkFields for trip/batch, batch detail shows trip name,
+trip detail shows status summary. `expenseSelectors` in `src/store/selectors.ts`.
 
-- Expense detail: Trip and Batch fields replaced with tappable `LinkField` (navigates to `/trip/[id]`, `/batch/[id]`)
-- Expense edit: Batch chip picker added alongside Trip picker
-- Batch detail: expense rows show trip name resolved from `useTripStore`
-- Trip detail: status summary section with `StatusBadge + count + currency total` via `useMemo`
-- `src/store/selectors.ts`: `expenseSelectors` — `totalUnsubmitted`, `totalSubmitted`, `totalApproved`, `totalPaid`, `countByStatus`, `totalByStatus`
+### Phase 3E — Desktop Workspace Foundation `bf7048e`
+`/` → Dashboard with status cards + quick actions. `/expenses` as dedicated route.
+`useWindowDimensions` responsive layout, 900px max-width centering.
 
-### Phase 3E — Desktop Workspace Foundation `(current commit)`
+### Phase 3F — Trip CSV Export `c4a3aea`
+`src/utils/tripExport.ts`: `buildTripCsv` (UTF-8 BOM, CRLF, summary block, currency breakdown).
+Web: Blob download. Native: `Share.share`. Export CSV button on Trip Detail.
 
-- Primary platform shifted to Desktop Web; mobile remains secondary
-- Navigation model changed from expense-centric to workspace-centric
-  - `/` is now the Dashboard (was the expense list)
-  - `/expenses` is now the dedicated expense list (`app/expenses.tsx` promoted)
-- `app/index.tsx` rewritten as Dashboard:
-  - 4 status cards (Unsubmitted / Submitted / Approved / Paid) with color-coded left borders
-  - Each card shows amount total + expense count drawn from `expenseSelectors`
-  - Open Trips + Draft Batches count cards
-  - Quick Action buttons: Expenses, Trips, Batches
-  - `useWindowDimensions` responsive layout: content centered, max-width 900px on screens ≥ 768px
-- `app/_layout.tsx` simplified: header buttons removed, `expenses` screen registered, index title → "Dashboard"
-- No new dependencies introduced
+### Phase 5B — Submission Ready Experience `(current commit)`
+
+**Receipt Tracking:**
+- `Expense.hasReceipt: boolean` + `Expense.receiptMissingReason?: string` added to type
+- SQLite migration: `has_receipt INTEGER NOT NULL DEFAULT 0`, `receipt_missing_reason TEXT`
+- `ExpenseRepository` reads/writes both fields
+- Expense Detail: `[✓ Present] [⚠ Missing]` chip toggle; inline warning badge in header
+- Edit Expense: receipt chips + missing reason text input
+- New expenses default to `hasReceipt: false`
+
+**Submission Readiness Selectors:**
+- `tripReadiness(expenses, tripId)` → `{ total, withReceipt, missingReceipt, submitted, approved, paid }`
+- `batchReadiness(expenses, batchId)` → `{ total, withReceipt, missingReceipt, unsubmitted }`
+
+**Readiness Indicators UI:**
+- Trip Detail: "Submission Readiness" section with ✓/⚠ rows; amber alert panel listing expenses with missing receipts; ⚠ indicator on each expense row missing a receipt
+- Batch Detail: "Batch Readiness" section with assigned count, receipt status, unsubmitted count
+
+**Desktop Improvements:**
+- Expense Detail: 2-column layout on ≥768px (fields left / receipt+actions right)
+- Trip Detail: 2-column layout on ≥768px (info+readiness left / expenses right), max-width 1100px
+- Batch Detail: 2-column layout on ≥768px (info+readiness left / expenses right)
+- Dashboard: 4-column status card grid on ≥1100px
+
+**Reporting Preparation:**
+- `src/utils/reportData.ts`: `tripSummaryReportData()` and `batchSummaryReportData()` — pure functions returning structured objects with all aggregates ready for future PDF/Excel export
+
+**CSV Export Enhancement:**
+- Added "Has Receipt" and "Missing Reason" columns to trip CSV
+- Added "Receipts Present" and "Receipts Missing" rows to CSV summary block
 
 ---
 
@@ -192,25 +185,24 @@ No screen touches SQLite directly. No store holds raw SQL.
 
 ### Phase 4 — Supabase Sync
 
-Blocked by: Phase 3 fully QA'd on web.
+Blocked by: Phase 3/5 fully QA'd on web.
 
 - Add Supabase project and env vars
 - Auth (email / OAuth)
 - Sync layer: local-first write, background push to Supabase
-- Conflict resolution strategy (last-write-wins vs server-authoritative)
+- Conflict resolution (last-write-wins vs server-authoritative)
 - RLS policies per user
 
-### Phase 5 — Reports & Export
+### Phase 5C — Batch CSV Export
 
-- Expense summary by category, trip, date range
-- PDF or CSV export
-- Submission workflow (status transitions: unsubmitted → submitted → approved/rejected → paid)
+Analogous to trip CSV export but for a batch. Blocked by: Phase 5B QA.
 
 ### Phase 6 — Dashboard Enhancements (future)
 
-- Currency-aware totals (currently sums all amounts without normalizing currency)
+- Currency-aware totals (currently sums all amounts regardless of currency)
 - Date-range filter on dashboard cards
 - Link from each status card to a filtered expense list
+- "Recent Expenses" panel on dashboard
 
 ---
 
@@ -222,37 +214,44 @@ Blocked by: Phase 3 fully QA'd on web.
 `TripRepository` and `BatchRepository` use `list`/`getById`/`create`/`softDelete`.
 The `Repository<T>` base interface is partially decorative.
 
-**Risk:** Low — no runtime impact. Fix when starting Phase 4 sync layer.
+**Risk:** Low. Fix when starting Phase 4 sync layer.
 
 ### TD-02 — ID generation is not UUID v4
 
-`generateId()` uses `Date.now().toString(36) + Math.random()`. Sufficient for single-device local use; not suitable for cross-device sync.
+`generateId()` uses `Date.now().toString(36) + Math.random()`. Not suitable for cross-device sync.
 
-**Fix when:** Phase 4. Switch to `crypto.randomUUID()` (available in Hermes / RN 0.73+).
+**Fix when:** Phase 4. Switch to `crypto.randomUUID()`.
 
 ### TD-03 — No input validation on date and currency fields
 
-The Add/Edit Expense form accepts any string for `date` and `currency`. An invalid date is stored without error.
+The Add/Edit Expense form accepts any string for `date` and `currency`.
 
-**Fix when:** Phase 4 or a dedicated hardening sprint.
+**Fix when:** Phase 4 or a hardening sprint.
 
 ### TD-04 — Dashboard totals are currency-unaware
 
-`expenseSelectors` sums all amounts regardless of currency. If a user mixes USD and EUR expenses, the total is meaningless.
+`expenseSelectors` sums all amounts regardless of currency.
 
 **Risk:** Low for single-currency use. Fix during Phase 6.
 
 ### TD-05 — No automated tests
 
-Zero test files exist. All validation is manual.
+Zero test files. All validation is manual.
 
-**Fix when:** After Phase 3 is QA'd on web.
+**Fix when:** After Phase 3/5 is QA'd on web. Start with repository unit tests.
 
 ### TD-06 — `useLocalSearchParams id` can be `string[]`
 
-Detail screens assume `id` is `string`. Add `typeof id !== 'string'` guards during a hardening pass.
+Detail screens assume `id` is `string`. Add `typeof id !== 'string'` guards.
 
-**Risk:** Very low in practice with a single dynamic segment.
+**Risk:** Very low in practice.
+
+### TD-07 — hasReceipt defaults to false for all existing expenses
+
+Existing expenses loaded from a pre-5B database will have `has_receipt = 0` (false) by default.
+This means the readiness indicators will show all existing expenses as "missing receipts" until the user explicitly marks them as Present.
+
+**Risk:** User-visible inaccuracy on first upgrade. Acceptable for local-only use — the user knows their own data. No auto-migration is warranted.
 
 ---
 
@@ -271,14 +270,19 @@ Detail screens assume `id` is `string`. Add `typeof id !== 'string'` guards duri
 
 ## Next Sprint Recommendation
 
-**Recommended: Web QA + Polish**
+**Recommended: Web QA Sprint + Batch CSV Export**
 
-The workspace-centric navigation model is in place. Before adding Supabase, verify the full user flow on web:
+1. **Run `npx expo start --web`** and manually validate:
+   - Dashboard 4-column cards at 1280px+; 2-column at 768px; single at 375px
+   - Expense detail 2-column layout on desktop; receipt toggle works
+   - Trip detail 2-column layout; readiness section; CSV download fires in browser
+   - Batch detail 2-column layout; readiness section; missing receipt warnings
+   - Add expense → default hasReceipt false → detail shows "⚠ Receipt Missing"
+   - Mark as Present → badge clears
+   - Export CSV → "Has Receipt" column correct in downloaded file
 
-1. **Run `npx expo start --web`** — confirm Dashboard, Expenses, Trips, Batches all load and navigate correctly
-2. **Desktop layout review** — verify 900px max-width centering, card grid, and quick actions render at 1280px+
-3. **Mobile regression check** — verify Dashboard reads well at 375px (cards 2-up, actions in a row)
-4. **Nav back-button audit** — pressing Back from Expenses/Trips/Batches returns to Dashboard
-5. **Currency-aware totals (TD-04)** — decide whether to scope into this sprint or defer to Phase 6
+2. **Batch CSV Export (Phase 5C)** — mirror of trip export; uses `batchSummaryReportData` already written in `reportData.ts`
 
-After QA is clean, the codebase is ready for Phase 4 (Supabase auth + sync layer).
+3. **Resolve TD-07** — decide whether to show a one-time notice on first run ("Existing expenses may need receipt status updated") or add a bulk "Mark all as present" utility action
+
+4. **After QA is clean:** Phase 4 (Supabase auth + sync layer) is the next major milestone

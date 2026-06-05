@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import { StatusBadge } from '@/components/StatusBadge';
@@ -56,6 +57,9 @@ function LinkField({ label, value, onPress }: { label: string; value: string; on
 }
 
 export default function ExpenseDetailScreen() {
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const getExpenseById  = useExpenseStore((s) => s.getExpenseById);
   const updateExpense   = useExpenseStore((s) => s.updateExpense);
@@ -63,14 +67,14 @@ export default function ExpenseDetailScreen() {
   const trips           = useTripStore((s) => s.trips);
   const batches         = useBatchStore((s) => s.batches);
 
-  const [expense, setExpense]               = useState<Expense | null>(null);
-  const [loading, setLoading]               = useState(true);
-  const [notFound, setNotFound]             = useState(false);
+  const [expense, setExpense]                   = useState<Expense | null>(null);
+  const [loading, setLoading]                   = useState(true);
+  const [notFound, setNotFound]                 = useState(false);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
-  const [changingStatus, setChangingStatus] = useState(false);
-  const [deleting, setDeleting]             = useState(false);
+  const [changingStatus, setChangingStatus]     = useState(false);
+  const [togglingReceipt, setTogglingReceipt]   = useState(false);
+  const [deleting, setDeleting]                 = useState(false);
 
-  // Reload on every focus so the screen reflects edits made on the edit screen.
   useFocusEffect(
     useCallback(() => {
       if (!id) {
@@ -98,6 +102,25 @@ export default function ExpenseDetailScreen() {
   const handleEdit = () => {
     if (!expense) return;
     router.push({ pathname: '/edit-expense', params: { id: expense.id } });
+  };
+
+  const handleReceiptToggle = async (hasReceipt: boolean) => {
+    if (!expense) return;
+    setTogglingReceipt(true);
+    try {
+      const updated: Expense = {
+        ...expense,
+        hasReceipt,
+        receiptMissingReason: hasReceipt ? undefined : expense.receiptMissingReason,
+      };
+      await updateExpense(updated);
+      setExpense(updated);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Failed to update receipt status. Please try again.');
+    } finally {
+      setTogglingReceipt(false);
+    }
   };
 
   const handleStatusChange = async (newStatus: ExpenseStatus) => {
@@ -160,53 +183,41 @@ export default function ExpenseDetailScreen() {
     );
   }
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-
-      <Text style={styles.title}>{expense.title}</Text>
-      <Text style={styles.amount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
-      <View style={styles.badgeRow}>
-        <StatusBadge status={expense.status} />
-      </View>
-
-      <View style={styles.divider} />
-
-      <Field label="Date" value={expense.date} />
-      <Field
-        label="Category"
-        value={expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
-      />
-      <Field
-        label="Payment Method"
-        value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod}
-      />
-      {expense.workTripId && (
-        <LinkField
-          label="Trip"
-          value={trips.find((t) => t.id === expense.workTripId)?.name ?? '—'}
-          onPress={() => router.push(`/trip/${expense.workTripId}`)}
-        />
-      )}
-      {expense.reimbursementBatchId && (
-        <LinkField
-          label="Batch"
-          value={batches.find((b) => b.id === expense.reimbursementBatchId)?.name ?? '—'}
-          onPress={() => router.push(`/batch/${expense.reimbursementBatchId}`)}
-        />
-      )}
-      {expense.notes ? <Field label="Notes" value={expense.notes} /> : null}
-
-      <View style={styles.divider} />
-
-      {/* Action buttons */}
-      <View style={styles.primaryActions}>
+  const receiptSection = (
+    <View style={styles.receiptSection}>
+      <Text style={styles.fieldLabel}>Receipt</Text>
+      <View style={styles.receiptToggle}>
         <Pressable
-          style={[styles.button, styles.outlineButton]}
-          onPress={handleEdit}
+          style={[styles.receiptChip, expense.hasReceipt && styles.receiptChipPresent]}
+          onPress={() => !expense.hasReceipt && handleReceiptToggle(true)}
+          disabled={expense.hasReceipt || togglingReceipt}
         >
+          <Text style={[styles.receiptChipText, expense.hasReceipt && styles.receiptChipPresentText]}>
+            ✓ Present
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.receiptChip, !expense.hasReceipt && styles.receiptChipMissing]}
+          onPress={() => expense.hasReceipt && handleReceiptToggle(false)}
+          disabled={!expense.hasReceipt || togglingReceipt}
+        >
+          <Text style={[styles.receiptChipText, !expense.hasReceipt && styles.receiptChipMissingText]}>
+            ⚠ Missing
+          </Text>
+        </Pressable>
+      </View>
+      {!expense.hasReceipt && expense.receiptMissingReason ? (
+        <Text style={styles.receiptReason}>{expense.receiptMissingReason}</Text>
+      ) : null}
+    </View>
+  );
+
+  const actionSection = (
+    <>
+      <View style={styles.primaryActions}>
+        <Pressable style={[styles.button, styles.outlineButton]} onPress={handleEdit}>
           <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>
         </Pressable>
-
         <Pressable
           style={[styles.button, styles.outlineButton, showStatusPicker && styles.outlineButtonActive]}
           onPress={() => setShowStatusPicker((v) => !v)}
@@ -221,7 +232,6 @@ export default function ExpenseDetailScreen() {
         </Pressable>
       </View>
 
-      {/* Inline status picker */}
       {showStatusPicker && (
         <View style={styles.statusPicker}>
           {STATUS_OPTIONS.map((opt) => {
@@ -250,7 +260,101 @@ export default function ExpenseDetailScreen() {
           {deleting ? 'Deleting…' : 'Delete'}
         </Text>
       </Pressable>
+    </>
+  );
 
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, isWide && styles.contentWide]}
+    >
+      <View style={isWide ? styles.innerWide : undefined}>
+
+        {/* Header */}
+        <Text style={styles.title}>{expense.title}</Text>
+        <Text style={styles.amount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
+        <View style={styles.badgeRow}>
+          <StatusBadge status={expense.status} />
+          {!expense.hasReceipt && (
+            <View style={styles.receiptMissingBadge}>
+              <Text style={styles.receiptMissingBadgeText}>⚠ Receipt Missing</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.divider} />
+
+        {isWide ? (
+          /* Wide: 2-column body */
+          <View style={styles.bodyWide}>
+            <View style={styles.leftColWide}>
+              <Field label="Date" value={expense.date} />
+              <Field
+                label="Category"
+                value={expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
+              />
+              <Field
+                label="Payment Method"
+                value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod}
+              />
+              {expense.workTripId && (
+                <LinkField
+                  label="Trip"
+                  value={trips.find((t) => t.id === expense.workTripId)?.name ?? '—'}
+                  onPress={() => router.push(`/trip/${expense.workTripId}`)}
+                />
+              )}
+              {expense.reimbursementBatchId && (
+                <LinkField
+                  label="Batch"
+                  value={batches.find((b) => b.id === expense.reimbursementBatchId)?.name ?? '—'}
+                  onPress={() => router.push(`/batch/${expense.reimbursementBatchId}`)}
+                />
+              )}
+              {expense.notes ? <Field label="Notes" value={expense.notes} /> : null}
+            </View>
+            <View style={styles.rightColWide}>
+              {receiptSection}
+              <View style={styles.divider} />
+              {actionSection}
+            </View>
+          </View>
+        ) : (
+          /* Mobile: single column */
+          <>
+            <Field label="Date" value={expense.date} />
+            <Field
+              label="Category"
+              value={expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
+            />
+            <Field
+              label="Payment Method"
+              value={PAYMENT_METHOD_LABELS[expense.paymentMethod] ?? expense.paymentMethod}
+            />
+            {expense.workTripId && (
+              <LinkField
+                label="Trip"
+                value={trips.find((t) => t.id === expense.workTripId)?.name ?? '—'}
+                onPress={() => router.push(`/trip/${expense.workTripId}`)}
+              />
+            )}
+            {expense.reimbursementBatchId && (
+              <LinkField
+                label="Batch"
+                value={batches.find((b) => b.id === expense.reimbursementBatchId)?.name ?? '—'}
+                onPress={() => router.push(`/batch/${expense.reimbursementBatchId}`)}
+              />
+            )}
+            {expense.notes ? <Field label="Notes" value={expense.notes} /> : null}
+
+            {receiptSection}
+
+            <View style={styles.divider} />
+            {actionSection}
+          </>
+        )}
+
+      </View>
     </ScrollView>
   );
 }
@@ -287,6 +391,15 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  contentWide: {
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 32,
+  },
+  innerWide: {
+    maxWidth: 960,
+    width: '100%',
+  },
   title: {
     fontSize: 22,
     fontWeight: '700',
@@ -299,12 +412,37 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 10,
+  },
+  receiptMissingBadge: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  receiptMissingBadgeText: {
+    fontSize: 12,
+    color: '#D97706',
+    fontWeight: '600',
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: '#e5e5e5',
     marginVertical: 20,
+  },
+  bodyWide: {
+    flexDirection: 'row',
+    gap: 40,
+    alignItems: 'flex-start',
+  },
+  leftColWide: {
+    flex: 3,
+  },
+  rightColWide: {
+    flex: 2,
   },
   field: {
     marginBottom: 16,
@@ -339,6 +477,47 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#2563EB',
     lineHeight: 22,
+  },
+  receiptSection: {
+    marginBottom: 16,
+  },
+  receiptToggle: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  receiptChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#F9FAFB',
+  },
+  receiptChipPresent: {
+    borderColor: '#059669',
+    backgroundColor: '#ECFDF5',
+  },
+  receiptChipMissing: {
+    borderColor: '#D97706',
+    backgroundColor: '#FFFBEB',
+  },
+  receiptChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  receiptChipPresentText: {
+    color: '#059669',
+  },
+  receiptChipMissingText: {
+    color: '#D97706',
+  },
+  receiptReason: {
+    fontSize: 13,
+    color: '#D97706',
+    marginTop: 6,
+    fontStyle: 'italic',
   },
   primaryActions: {
     flexDirection: 'row',

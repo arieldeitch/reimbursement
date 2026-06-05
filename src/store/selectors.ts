@@ -24,3 +24,41 @@ export const expenseSelectors = {
   totalByStatus: sumByStatus,
   countByStatus,
 };
+
+export interface TripReadiness {
+  total: number;
+  withReceipt: number;
+  missingReceipt: number;
+  submitted: number;
+  approved: number;
+  paid: number;
+}
+
+export function tripReadiness(expenses: Expense[], tripId: string): TripReadiness {
+  const trip = expenses.filter((e) => e.workTripId === tripId);
+  return {
+    total:          trip.length,
+    withReceipt:    trip.filter((e) =>  e.hasReceipt).length,
+    missingReceipt: trip.filter((e) => !e.hasReceipt).length,
+    submitted:      trip.filter((e) => e.status === 'submitted').length,
+    approved:       trip.filter((e) => e.status === 'approved').length,
+    paid:           trip.filter((e) => e.status === 'paid').length,
+  };
+}
+
+export interface BatchReadiness {
+  total: number;
+  withReceipt: number;
+  missingReceipt: number;
+  unsubmitted: number;
+}
+
+export function batchReadiness(expenses: Expense[], batchId: string): BatchReadiness {
+  const batch = expenses.filter((e) => e.reimbursementBatchId === batchId);
+  return {
+    total:          batch.length,
+    withReceipt:    batch.filter((e) =>  e.hasReceipt).length,
+    missingReceipt: batch.filter((e) => !e.hasReceipt).length,
+    unsubmitted:    batch.filter((e) => e.status === 'unsubmitted').length,
+  };
+}

@@ -8,16 +8,17 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
-
-import { exportTripCsv } from '@/utils/tripExport';
 
 import { StatusBadge } from '@/components/StatusBadge';
 import { TripStatusBadge } from '@/components/TripStatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
+import { tripReadiness } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
 import type { ExpenseStatus } from '@/types/expense';
 import type { WorkTrip } from '@/types/trip';
+import { exportTripCsv } from '@/utils/tripExport';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -28,7 +29,18 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ReadinessRow({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <Text style={ok ? styles.readinessOk : styles.readinessWarn}>
+      {ok ? '✓' : '⚠'} {label}
+    </Text>
+  );
+}
+
 export default function TripDetailScreen() {
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const getTripById = useTripStore((s) => s.getTripById);
   const deleteTrip  = useTripStore((s) => s.deleteTrip);
@@ -80,6 +92,16 @@ export default function TripDetailScreen() {
     });
     return map;
   }, [tripExpenses]);
+
+  const readiness = useMemo(
+    () => (trip ? tripReadiness(expenses, trip.id) : null),
+    [expenses, trip],
+  );
+
+  const missingReceiptExpenses = useMemo(
+    () => tripExpenses.filter((e) => !e.hasReceipt),
+    [tripExpenses],
+  );
 
   const handleExport = async () => {
     if (!trip) return;
@@ -144,9 +166,8 @@ export default function TripDetailScreen() {
     );
   }
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-
+  const infoPanel = (
+    <>
       <Text style={styles.title}>{trip.name}</Text>
       <View style={styles.badgeRow}>
         <TripStatusBadge status={trip.status} />
@@ -160,9 +181,69 @@ export default function TripDetailScreen() {
       {trip.client ? <Field label="Client" value={trip.client} /> : null}
       {trip.notes  ? <Field label="Notes"  value={trip.notes}  /> : null}
 
+      {readiness && readiness.total > 0 && (
+        <>
+          <View style={styles.divider} />
+          <Text style={styles.sectionTitle}>Submission Readiness</Text>
+          <View style={styles.readinessBlock}>
+            <ReadinessRow ok label={`${readiness.total} expense${readiness.total !== 1 ? 's' : ''} recorded`} />
+            <ReadinessRow
+              ok={readiness.missingReceipt === 0}
+              label={
+                readiness.missingReceipt === 0
+                  ? `${readiness.withReceipt} receipt${readiness.withReceipt !== 1 ? 's' : ''} present`
+                  : `${readiness.missingReceipt} receipt${readiness.missingReceipt !== 1 ? 's' : ''} missing`
+              }
+            />
+            {readiness.missingReceipt > 0 && readiness.withReceipt > 0 && (
+              <ReadinessRow ok label={`${readiness.withReceipt} receipt${readiness.withReceipt !== 1 ? 's' : ''} present`} />
+            )}
+            {readiness.submitted > 0 && (
+              <ReadinessRow ok label={`${readiness.submitted} submitted`} />
+            )}
+            {readiness.approved > 0 && (
+              <ReadinessRow ok label={`${readiness.approved} approved`} />
+            )}
+            {readiness.paid > 0 && (
+              <ReadinessRow ok label={`${readiness.paid} paid`} />
+            )}
+          </View>
+        </>
+      )}
+
       <View style={styles.divider} />
 
-      {/* Assigned Expenses */}
+      <View style={styles.actionsStack}>
+        <Pressable
+          style={[styles.button, styles.exportButton, exporting && styles.exportButtonBusy]}
+          onPress={handleExport}
+          disabled={exporting}
+        >
+          <Text style={[styles.buttonText, styles.exportButtonText]}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </Text>
+        </Pressable>
+
+        <View style={styles.actions}>
+          <Pressable style={[styles.button, styles.outlineButton]} onPress={handleEdit}>
+            <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.button, styles.dangerButton, deleting && styles.dangerButtonDisabled]}
+            onPress={handleDelete}
+            disabled={deleting}
+          >
+            <Text style={[styles.buttonText, styles.dangerButtonText]}>
+              {deleting ? 'Deleting…' : 'Delete'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </>
+  );
+
+  const expensesPanel = (
+    <>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>
           Assigned Expenses{tripExpenses.length > 0 ? ` (${tripExpenses.length})` : ''}
@@ -191,6 +272,19 @@ export default function TripDetailScreen() {
         </View>
       )}
 
+      {missingReceiptExpenses.length > 0 && (
+        <View style={styles.missingReceiptAlert}>
+          <Text style={styles.missingReceiptAlertTitle}>
+            ⚠ {missingReceiptExpenses.length} expense{missingReceiptExpenses.length !== 1 ? 's' : ''} missing receipts
+          </Text>
+          {missingReceiptExpenses.map((e) => (
+            <Pressable key={e.id} onPress={() => router.push(`/expense/${e.id}`)}>
+              <Text style={styles.missingReceiptItem}>· {e.title}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {tripExpenses.length === 0 ? (
         <Text style={styles.noExpenses}>No expenses assigned to this trip.</Text>
       ) : (
@@ -201,7 +295,12 @@ export default function TripDetailScreen() {
             onPress={() => router.push(`/expense/${expense.id}`)}
           >
             <View style={styles.expenseRowLeft}>
-              <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
+              <View style={styles.expenseRowTitleRow}>
+                <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
+                {!expense.hasReceipt && (
+                  <Text style={styles.expenseRowNoReceipt}>⚠</Text>
+                )}
+              </View>
               <View style={styles.expenseRowBadge}>
                 <StatusBadge status={expense.status} />
               </View>
@@ -212,37 +311,28 @@ export default function TripDetailScreen() {
           </Pressable>
         ))
       )}
+    </>
+  );
 
-      <View style={styles.divider} />
-
-      <View style={styles.actionsStack}>
-        <Pressable
-          style={[styles.button, styles.exportButton, exporting && styles.exportButtonBusy]}
-          onPress={handleExport}
-          disabled={exporting}
-        >
-          <Text style={[styles.buttonText, styles.exportButtonText]}>
-            {exporting ? 'Exporting…' : 'Export CSV'}
-          </Text>
-        </Pressable>
-
-        <View style={styles.actions}>
-          <Pressable style={[styles.button, styles.outlineButton]} onPress={handleEdit}>
-            <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.button, styles.dangerButton, deleting && styles.dangerButtonDisabled]}
-            onPress={handleDelete}
-            disabled={deleting}
-          >
-            <Text style={[styles.buttonText, styles.dangerButtonText]}>
-              {deleting ? 'Deleting…' : 'Delete'}
-            </Text>
-          </Pressable>
-        </View>
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, isWide && styles.contentWide]}
+    >
+      <View style={isWide ? styles.innerWide : undefined}>
+        {isWide ? (
+          <View style={styles.columnsWide}>
+            <View style={styles.leftColWide}>{infoPanel}</View>
+            <View style={styles.rightColWide}>{expensesPanel}</View>
+          </View>
+        ) : (
+          <>
+            {infoPanel}
+            <View style={styles.divider} />
+            {expensesPanel}
+          </>
+        )}
       </View>
-
     </ScrollView>
   );
 }
@@ -279,6 +369,26 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  contentWide: {
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 32,
+  },
+  innerWide: {
+    maxWidth: 1100,
+    width: '100%',
+  },
+  columnsWide: {
+    flexDirection: 'row',
+    gap: 48,
+    alignItems: 'flex-start',
+  },
+  leftColWide: {
+    flex: 2,
+  },
+  rightColWide: {
+    flex: 3,
+  },
   title: {
     fontSize: 22,
     fontWeight: '700',
@@ -306,6 +416,20 @@ const styles = StyleSheet.create({
   fieldValue: {
     fontSize: 16,
     color: '#111',
+  },
+  readinessBlock: {
+    gap: 6,
+    marginTop: 10,
+  },
+  readinessOk: {
+    fontSize: 14,
+    color: '#059669',
+    fontWeight: '500',
+  },
+  readinessWarn: {
+    fontSize: 14,
+    color: '#D97706',
+    fontWeight: '600',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -343,6 +467,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#555',
   },
+  missingReceiptAlert: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 12,
+    marginBottom: 16,
+  },
+  missingReceiptAlertTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#D97706',
+    marginBottom: 6,
+  },
+  missingReceiptItem: {
+    fontSize: 13,
+    color: '#92400E',
+    marginTop: 2,
+  },
   expenseRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -359,10 +502,20 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  expenseRowTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   expenseRowTitle: {
     fontSize: 15,
     fontWeight: '600',
     color: '#111',
+    flex: 1,
+  },
+  expenseRowNoReceipt: {
+    fontSize: 13,
+    color: '#D97706',
   },
   expenseRowBadge: {
     marginTop: 4,

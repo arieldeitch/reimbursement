@@ -44,6 +44,8 @@ export default function EditExpenseScreen() {
   const [notes, setNotes]                       = useState('');
   const [workTripId, setWorkTripId]             = useState<string | undefined>(undefined);
   const [reimbursementBatchId, setReimbursementBatchId] = useState<string | undefined>(undefined);
+  const [hasReceipt, setHasReceipt]                     = useState(false);
+  const [receiptMissingReason, setReceiptMissingReason] = useState('');
 
   useEffect(() => {
     if (!id) {
@@ -62,6 +64,8 @@ export default function EditExpenseScreen() {
         setNotes(found.notes ?? '');
         setWorkTripId(found.workTripId);
         setReimbursementBatchId(found.reimbursementBatchId);
+        setHasReceipt(found.hasReceipt);
+        setReceiptMissingReason(found.receiptMissingReason ?? '');
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -82,6 +86,8 @@ export default function EditExpenseScreen() {
         category,
         paymentMethod,
         notes: notes.trim() || undefined,
+        hasReceipt,
+        receiptMissingReason: !hasReceipt && receiptMissingReason.trim() ? receiptMissingReason.trim() : undefined,
         workTripId,
         reimbursementBatchId,
       });
@@ -250,6 +256,35 @@ export default function EditExpenseScreen() {
           ))}
         </ScrollView>
 
+        <Text style={styles.label}>Receipt</Text>
+        <View style={styles.receiptRow}>
+          <Pressable
+            style={[styles.chip, hasReceipt && styles.chipActive]}
+            onPress={() => setHasReceipt(true)}
+          >
+            <Text style={[styles.chipText, hasReceipt && styles.chipTextActive]}>✓ Present</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.chip, !hasReceipt && styles.chipMissing]}
+            onPress={() => setHasReceipt(false)}
+          >
+            <Text style={[styles.chipText, !hasReceipt && styles.chipMissingText]}>⚠ Missing</Text>
+          </Pressable>
+        </View>
+
+        {!hasReceipt && (
+          <>
+            <Text style={styles.label}>Missing Reason (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={receiptMissingReason}
+              onChangeText={setReceiptMissingReason}
+              placeholder="e.g. Lost, digital only, pending"
+              placeholderTextColor="#aaa"
+            />
+          </>
+        )}
+
         <Text style={styles.label}>Notes (optional)</Text>
         <TextInput
           style={[styles.input, styles.notesInput]}
@@ -339,6 +374,10 @@ const styles = StyleSheet.create({
     height: 88,
     paddingTop: 10,
   },
+  receiptRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   chips: {
     flexDirection: 'row',
   },
@@ -361,6 +400,14 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: '#fff',
+    fontWeight: '600',
+  },
+  chipMissing: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#D97706',
+  },
+  chipMissingText: {
+    color: '#D97706',
     fontWeight: '600',
   },
   saveButton: {

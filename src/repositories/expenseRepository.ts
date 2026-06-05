@@ -13,6 +13,8 @@ interface ExpenseRow {
   payment_method: string;
   status: string;
   notes: string | null;
+  has_receipt: number;
+  receipt_missing_reason: string | null;
   deleted_at: string | null;
   work_trip_id: string | null;
   reimbursement_batch_id: string | null;
@@ -31,6 +33,8 @@ function rowToExpense(row: ExpenseRow): Expense {
     paymentMethod: row.payment_method as PaymentMethod,
     status: row.status as ExpenseStatus,
     notes: row.notes ?? undefined,
+    hasReceipt: row.has_receipt === 1,
+    receiptMissingReason: row.receipt_missing_reason ?? undefined,
     deletedAt: row.deleted_at,
     workTripId: row.work_trip_id ?? undefined,
     reimbursementBatchId: row.reimbursement_batch_id ?? undefined,
@@ -70,8 +74,9 @@ export class ExpenseRepository implements Repository<Expense> {
     await this.db.runAsync(
       `UPDATE expenses SET
          title = ?, amount = ?, currency = ?, date = ?, category = ?,
-         payment_method = ?, status = ?, notes = ?, deleted_at = ?,
-         work_trip_id = ?, reimbursement_batch_id = ?, updated_at = ?
+         payment_method = ?, status = ?, notes = ?,
+         has_receipt = ?, receipt_missing_reason = ?,
+         deleted_at = ?, work_trip_id = ?, reimbursement_batch_id = ?, updated_at = ?
        WHERE id = ?`,
       [
         expense.title,
@@ -82,6 +87,8 @@ export class ExpenseRepository implements Repository<Expense> {
         expense.paymentMethod,
         expense.status,
         expense.notes ?? null,
+        expense.hasReceipt ? 1 : 0,
+        expense.receiptMissingReason ?? null,
         expense.deletedAt ?? null,
         expense.workTripId ?? null,
         expense.reimbursementBatchId ?? null,
@@ -102,8 +109,9 @@ export class ExpenseRepository implements Repository<Expense> {
     await this.db.runAsync(
       `INSERT INTO expenses
          (id, title, amount, currency, date, category, payment_method,
-          status, notes, deleted_at, work_trip_id, reimbursement_batch_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          status, notes, has_receipt, receipt_missing_reason,
+          deleted_at, work_trip_id, reimbursement_batch_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.title,
@@ -114,6 +122,8 @@ export class ExpenseRepository implements Repository<Expense> {
         data.paymentMethod,
         data.status,
         data.notes ?? null,
+        data.hasReceipt ? 1 : 0,
+        data.receiptMissingReason ?? null,
         data.deletedAt ?? null,
         data.workTripId ?? null,
         data.reimbursementBatchId ?? null,
