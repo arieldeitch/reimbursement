@@ -1,150 +1,233 @@
 import { Link } from 'expo-router';
-import { router } from 'expo-router';
+import { useMemo } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
-import { StatusBadge } from '@/components/StatusBadge';
+import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
-import type { Expense } from '@/types/expense';
+import { expenseSelectors } from '@/store/selectors';
+import { useTripStore } from '@/store/tripSlice';
 
-function ExpenseItem({ expense }: { expense: Expense }) {
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
-      onPress={() => router.push(`/expense/${expense.id}`)}
-    >
-      <View style={styles.itemLeft}>
-        <Text style={styles.itemTitle} numberOfLines={1}>{expense.title}</Text>
-        <Text style={styles.itemMeta}>{expense.date} · {expense.category}</Text>
-        <View style={styles.itemBadge}>
-          <StatusBadge status={expense.status} />
-        </View>
-      </View>
-      <Text style={styles.itemAmount}>{expense.currency} {expense.amount.toFixed(2)}</Text>
-    </Pressable>
-  );
-}
+const STATUS_CARDS = [
+  { key: 'unsubmitted' as const, label: 'Unsubmitted', accent: '#F59E0B', bg: '#FFFBEB' },
+  { key: 'submitted'   as const, label: 'Submitted',   accent: '#3B82F6', bg: '#EFF6FF' },
+  { key: 'approved'    as const, label: 'Approved',    accent: '#10B981', bg: '#ECFDF5' },
+  { key: 'paid'        as const, label: 'Paid',        accent: '#0D9488', bg: '#F0FDFA' },
+];
 
-export default function HomeScreen() {
+export default function DashboardScreen() {
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
+
   const expenses = useExpenseStore((s) => s.expenses);
-  const isLoading = useExpenseStore((s) => s.isLoading);
+  const trips    = useTripStore((s) => s.trips);
+  const batches  = useBatchStore((s) => s.batches);
+
+  const stats = useMemo(() => ({
+    unsubmitted: {
+      total: expenseSelectors.totalUnsubmitted(expenses),
+      count: expenseSelectors.countUnsubmitted(expenses),
+    },
+    submitted: {
+      total: expenseSelectors.totalSubmitted(expenses),
+      count: expenseSelectors.countSubmitted(expenses),
+    },
+    approved: {
+      total: expenseSelectors.totalApproved(expenses),
+      count: expenseSelectors.countApproved(expenses),
+    },
+    paid: {
+      total: expenseSelectors.totalPaid(expenses),
+      count: expenseSelectors.countPaid(expenses),
+    },
+  }), [expenses]);
+
+  const openTrips    = useMemo(() => trips.filter((t) => t.status === 'open').length, [trips]);
+  const draftBatches = useMemo(() => batches.filter((b) => b.status === 'draft').length, [batches]);
 
   return (
-    <View style={styles.container}>
-      {isLoading ? (
-        <ActivityIndicator style={styles.loader} size="large" color="#2563EB" />
-      ) : (
-        <FlatList
-          style={styles.list}
-          data={expenses}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <ExpenseItem expense={item} />}
-          contentContainerStyle={expenses.length === 0 ? styles.emptyContainer : styles.listContent}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No expenses yet</Text>
-              <Text style={styles.emptySubtitle}>Tap the button below to add one</Text>
-            </View>
-          }
-        />
-      )}
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.scrollContent, isWide && styles.scrollContentWide]}
+    >
+      <View style={[styles.container, isWide && styles.containerWide]}>
 
-      <Link href="/add-expense" asChild>
-        <Pressable style={styles.addButton}>
-          <Text style={styles.addButtonText}>+ Add Expense</Text>
-        </Pressable>
-      </Link>
-    </View>
+        <Text style={[styles.heading, isWide && styles.headingWide]}>Dashboard</Text>
+
+        <Text style={styles.sectionLabel}>Expense Overview</Text>
+        <View style={styles.grid}>
+          {STATUS_CARDS.map(({ key, label, accent, bg }) => {
+            const s = stats[key];
+            return (
+              <View
+                key={key}
+                style={[styles.card, { backgroundColor: bg, borderLeftColor: accent }]}
+              >
+                <Text style={[styles.cardLabel, { color: accent }]}>{label}</Text>
+                <Text style={styles.cardAmount}>{s.total.toFixed(2)}</Text>
+                <Text style={styles.cardCount}>
+                  {s.count} expense{s.count !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <Text style={styles.sectionLabel}>Open Items</Text>
+        <View style={styles.openRow}>
+          <View style={[styles.openCard, isWide && styles.openCardWide]}>
+            <Text style={styles.openCount}>{openTrips}</Text>
+            <Text style={styles.openLabel}>open trip{openTrips !== 1 ? 's' : ''}</Text>
+          </View>
+          <View style={[styles.openCard, isWide && styles.openCardWide]}>
+            <Text style={styles.openCount}>{draftBatches}</Text>
+            <Text style={styles.openLabel}>draft batch{draftBatches !== 1 ? 'es' : ''}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionLabel}>Quick Actions</Text>
+        <View style={styles.actions}>
+          <Link href="/expenses" asChild>
+            <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
+              <Text style={styles.actionText}>Expenses</Text>
+            </Pressable>
+          </Link>
+          <Link href="/trips" asChild>
+            <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
+              <Text style={styles.actionText}>Trips</Text>
+            </Pressable>
+          </Link>
+          <Link href="/batches" asChild>
+            <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
+              <Text style={styles.actionText}>Batches</Text>
+            </Pressable>
+          </Link>
+        </View>
+
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  scrollContentWide: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 32,
+  },
   container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
+    width: '100%',
   },
-  loader: {
-    flex: 1,
+  containerWide: {
+    maxWidth: 900,
   },
-  list: {
-    flex: 1,
+  heading: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 24,
   },
-  listContent: {
-    paddingVertical: 8,
+  headingWide: {
+    fontSize: 34,
+    marginBottom: 32,
   },
-  emptyContainer: {
-    flex: 1,
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    marginTop: 4,
   },
-  item: {
+  grid: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 28,
+  },
+  card: {
+    flexBasis: '47%',
+    flexGrow: 1,
+    borderLeftWidth: 4,
+    borderRadius: 8,
+    padding: 16,
+  },
+  cardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  cardAmount: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  cardCount: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  openRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 28,
+  },
+  openCard: {
+    flex: 1,
     backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  itemPressed: {
-    backgroundColor: '#f0f4ff',
+  openCardWide: {
+    paddingVertical: 24,
   },
-  itemLeft: {
-    flex: 1,
-    marginRight: 12,
+  openCount: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#111827',
   },
-  itemTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111',
-  },
-  itemMeta: {
+  openLabel: {
     fontSize: 13,
-    color: '#888',
-    marginTop: 2,
-    textTransform: 'capitalize',
+    color: '#6B7280',
+    marginTop: 4,
   },
-  itemBadge: {
-    marginTop: 6,
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
   },
-  itemAmount: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111',
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#e5e5e5',
-    marginLeft: 16,
-  },
-  empty: {
+  action: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#555',
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 6,
-  },
-  addButton: {
-    margin: 16,
     backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingVertical: 15,
+    borderRadius: 8,
+    paddingVertical: 14,
     alignItems: 'center',
   },
-  addButtonText: {
+  actionPressed: {
+    backgroundColor: '#1D4ED8',
+  },
+  actionText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

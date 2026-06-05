@@ -1,45 +1,88 @@
 # Sprint Progress Dashboard
 
-**Project:** Reimbursement Tracker (Mobile)
-**Date:** 2026-06-03
+**Project:** Reimbursement Tracker (Mobile + Desktop Web)
+**Updated:** 2026-06-05
 **Repo:** `C:\Users\user\Documents\GitHub\reimbursement`
+
+---
+
+## Primary Platform
+
+Desktop Web (via Expo + Metro web bundler). Mobile remains a supported secondary target.
 
 ---
 
 ## Current Architecture
 
 ```
-app/                        ← Expo Router screens (UI layer)
-  _layout.tsx               ← Root Stack, boots DB + loads expenses
-  index.tsx                 ← Expense list screen
-  add-expense.tsx           ← Add expense modal
-  expense/[id].tsx          ← Expense detail screen (skeleton)
+app/                          ← Expo Router screens (file-system routing)
+  _layout.tsx                 ← Root Stack; boots DB, loads all stores
+  index.tsx                   ← Dashboard (/) — status cards + quick actions
+  expenses.tsx                ← Expense list (/expenses)
+  add-expense.tsx             ← Add expense modal
+  edit-expense.tsx            ← Edit expense screen
+  expense/[id].tsx            ← Expense detail (LinkField to trip + batch)
+  trips.tsx                   ← Trip list (/trips)
+  add-trip.tsx                ← Add trip modal
+  edit-trip.tsx               ← Edit trip screen
+  trip/[id].tsx               ← Trip detail (status totals, expense list)
+  batches.tsx                 ← Batch list (/batches)
+  add-batch.tsx               ← Add batch modal
+  edit-batch.tsx              ← Edit batch screen
+  batch/[id].tsx              ← Batch detail (expense list with trip names)
 
 src/
   db/
-    client.ts               ← SQLite singleton, schema init
+    client.ts                 ← SQLite singleton, WAL mode, schema init (3 tables)
   repositories/
-    index.ts                ← Repository<T> base interface
-    expenseRepository.ts    ← Full CRUD + soft delete
-    tripRepository.ts       ← Skeleton only, throws on all calls
+    index.ts                  ← Repository<T> base interface
+    expenseRepository.ts      ← Full CRUD + soft delete + assignToBatch
+    tripRepository.ts         ← Full CRUD + soft delete
+    batchRepository.ts        ← Full CRUD + soft delete
   store/
-    index.ts                ← useAppStore (boot / DB-ready flag)
-    expenseSlice.ts         ← useExpenseStore (list, add, get, update, delete)
+    index.ts                  ← useAppStore (isDbReady flag)
+    expenseSlice.ts           ← useExpenseStore
+    tripSlice.ts              ← useTripStore
+    batchSlice.ts             ← useBatchStore
+    selectors.ts              ← expenseSelectors (count + total by status)
   types/
-    entity.ts               ← Entity base interface (id, createdAt, updatedAt)
-    expense.ts              ← Expense, ExpenseStatus, ExpenseCategory, PaymentMethod
-    trip.ts                 ← WorkTrip, TripStatus
-    index.ts                ← Barrel re-export
+    entity.ts                 ← Entity base (id, createdAt, updatedAt)
+    expense.ts                ← Expense, ExpenseStatus, ExpenseCategory, PaymentMethod
+    trip.ts                   ← WorkTrip, TripStatus
+    batch.ts                  ← ReimbursementBatch, BatchStatus
+    index.ts                  ← Barrel re-export
+  components/
+    StatusBadge.tsx           ← Expense status chip
+    TripStatusBadge.tsx       ← Trip status chip
+    BatchStatusBadge.tsx      ← Batch status chip
 ```
 
-### Layer rules (enforced throughout)
+### Layer rules
 
 ```
-Screen → useExpenseStore → ExpenseRepository → SQLite
-           (Zustand)         (class singleton)   (expo-sqlite)
+Screen → useXxxStore → XxxRepository → SQLite
+           (Zustand)    (class singleton)  (expo-sqlite)
 ```
 
 No screen touches SQLite directly. No store holds raw SQL.
+
+### Navigation model (workspace-centric)
+
+```
+/ (Dashboard)
+  ├── /expenses      Expense list
+  │     ├── /add-expense       modal
+  │     ├── /expense/[id]      detail
+  │     └── /edit-expense      edit
+  ├── /trips         Trip list
+  │     ├── /add-trip          modal
+  │     ├── /trip/[id]         detail
+  │     └── /edit-trip         edit
+  └── /batches       Batch list
+        ├── /add-batch         modal
+        ├── /batch/[id]        detail
+        └── /edit-batch        edit
+```
 
 ### Stack
 
@@ -57,8 +100,9 @@ No screen touches SQLite directly. No store holds raw SQL.
 
 - File: `reimbursement.db`
 - Mode: WAL + foreign keys on
-- Tables: `expenses` only
-- Soft delete: `deleted_at` column on all entities (convention)
+- Tables: `expenses`, `trips`, `batches`
+- Soft delete: `deleted_at` column on all tables
+- Cross-table FKs: `expenses.work_trip_id` → `trips.id`, `expenses.reimbursement_batch_id` → `batches.id`
 
 ---
 
@@ -70,7 +114,7 @@ No screen touches SQLite directly. No store holds raw SQL.
 - SQLite client singleton with `PRAGMA journal_mode = WAL`
 - `Repository<T>` base interface
 - `useAppStore` with `isDbReady` flag
-- Boot sequence in `_layout.tsx`: open DB → init repo → load data → set ready
+- Boot sequence in `_layout.tsx`: open DB → init repos → load data → set ready
 - `babel-preset-expo` dependency fix `152c571`
 
 ### Phase 2A — Expense Creation `0524727`
@@ -78,7 +122,7 @@ No screen touches SQLite directly. No store holds raw SQL.
 - `expenses` table with all fields including `deleted_at`
 - `ExpenseRepository`: `findAll`, `findById`, `save`, `delete` (soft)
 - `useExpenseStore`: `loadExpenses`, `addExpense`
-- Add Expense modal form: title, amount, currency, date, category chips, payment method chips, notes
+- Add Expense form: title, amount, currency, date, category chips, payment method chips, notes
 - Expense list on home screen with empty state
 - Expenses persist across app restarts
 
@@ -86,45 +130,69 @@ No screen touches SQLite directly. No store holds raw SQL.
 
 - `ExpenseRepository` extended: `getById`, `update`, `softDelete`
 - `useExpenseStore` extended: `getExpenseById` (cache-first), `updateExpense`, `deleteExpense`
-- Dynamic route `app/expense/[id].tsx` registered in root Stack
-- Detail screen: loads by id, displays all fields read-only
-- Placeholder buttons: Edit, Change Status, Delete (each shows an Alert)
-- List items tappable → navigate to detail
+- Dynamic route `expense/[id].tsx` — read-only detail screen
 
 ### Phase 2C — Trip Domain Model `f8dde3c`
 
-- `WorkTrip` entity type: all fields including optional `client`, `notes`, `deletedAt`
-- `TripStatus`: `open | closed`
-- `TripRepository` skeleton: correct method signatures (`list`, `getById`, `create`, `update`, `softDelete`), all throw until DB table exists
-- `initTripRepository` / `getTripRepository` singleton helpers ready to wire
-- `Expense.workTripId?: string` added with architecture comment documenting the future FK relationship
-- Zero UI changes, zero schema changes
+- `WorkTrip` entity type, `TripStatus`, `TripRepository` skeleton
+- `Expense.workTripId?: string` FK field added to type
+
+### Phase 3A — Complete Expense CRUD `f11af10` `f6c0abf`
+
+- Edit form for an existing expense (pre-fill, validate, save via `updateExpense`)
+- Delete confirmation dialog → `deleteExpense` → `router.back()`
+- Status change picker → `updateExpense` with new status
+- All three placeholder buttons on the detail screen unblocked
+
+### Phase 3B — Trip UI `03ef6e3` `0dec5c4`
+
+- `trips` table created in SQLite schema
+- `work_trip_id` column added to `expenses` table
+- `TripRepository` fully implemented: `list`, `getById`, `create`, `update`, `softDelete`
+- `useTripStore`: `loadTrips`, `addTrip`, `getTripById`, `updateTrip`, `deleteTrip`
+- Trip list (`/trips`), Add Trip modal, Edit Trip screen, Trip detail with expense list
+- Expense edit form: trip picker chip set; assignment persisted via `work_trip_id`
+- Trip detail: status totals section (per-status count + amount via `useMemo`)
+
+### Phase 3C — Batch Management `041a325`
+
+- `batches` table created in SQLite schema
+- `reimbursement_batch_id` column added to `expenses` table
+- `BatchRepository`: full CRUD + soft delete + `assignExpense`
+- `useBatchStore`: full slice mirroring trip slice
+- Batch list (`/batches`), Add Batch modal, Edit Batch screen, Batch detail
+- Batch detail: expense list with trip name shown inline when `workTripId` is set
+
+### Phase 3D — Cross-domain Workflow + Dashboard Selectors `e40ba17`
+
+- Expense detail: Trip and Batch fields replaced with tappable `LinkField` (navigates to `/trip/[id]`, `/batch/[id]`)
+- Expense edit: Batch chip picker added alongside Trip picker
+- Batch detail: expense rows show trip name resolved from `useTripStore`
+- Trip detail: status summary section with `StatusBadge + count + currency total` via `useMemo`
+- `src/store/selectors.ts`: `expenseSelectors` — `totalUnsubmitted`, `totalSubmitted`, `totalApproved`, `totalPaid`, `countByStatus`, `totalByStatus`
+
+### Phase 3E — Desktop Workspace Foundation `(current commit)`
+
+- Primary platform shifted to Desktop Web; mobile remains secondary
+- Navigation model changed from expense-centric to workspace-centric
+  - `/` is now the Dashboard (was the expense list)
+  - `/expenses` is now the dedicated expense list (`app/expenses.tsx` promoted)
+- `app/index.tsx` rewritten as Dashboard:
+  - 4 status cards (Unsubmitted / Submitted / Approved / Paid) with color-coded left borders
+  - Each card shows amount total + expense count drawn from `expenseSelectors`
+  - Open Trips + Draft Batches count cards
+  - Quick Action buttons: Expenses, Trips, Batches
+  - `useWindowDimensions` responsive layout: content centered, max-width 900px on screens ≥ 768px
+- `app/_layout.tsx` simplified: header buttons removed, `expenses` screen registered, index title → "Dashboard"
+- No new dependencies introduced
 
 ---
 
 ## Open Milestones
 
-### Phase 3A — Complete Expense CRUD
-
-- Edit form for an existing expense (pre-fill, validate, save via `updateExpense`)
-- Delete confirmation dialog → calls `deleteExpense`, pops back to list
-- Status change picker → calls `updateExpense` with new status
-- Unblock the three placeholder buttons on the detail screen
-
-### Phase 3B — Trip UI
-
-Depends on activating `TripRepository` (four-step checklist in `tripRepository.ts`):
-
-1. `CREATE TABLE trips` in `src/db/client.ts _initSchema`
-2. `ALTER TABLE expenses ADD COLUMN work_trip_id TEXT` migration
-3. `initTripRepository(db)` call in `_layout.tsx`
-4. `useTripStore` Zustand slice
-
-Then: Trip list screen, Add Trip form, Trip detail screen, link expenses to a trip.
-
 ### Phase 4 — Supabase Sync
 
-Blocked by: stable local SQLite flow (Phases 1–3 fully QA'd).
+Blocked by: Phase 3 fully QA'd on web.
 
 - Add Supabase project and env vars
 - Auth (email / OAuth)
@@ -138,53 +206,53 @@ Blocked by: stable local SQLite flow (Phases 1–3 fully QA'd).
 - PDF or CSV export
 - Submission workflow (status transitions: unsubmitted → submitted → approved/rejected → paid)
 
+### Phase 6 — Dashboard Enhancements (future)
+
+- Currency-aware totals (currently sums all amounts without normalizing currency)
+- Date-range filter on dashboard cards
+- Link from each status card to a filtered expense list
+
 ---
 
 ## Known Technical Debt
 
-### TD-01 — `workTripId` typed but not in schema
+### TD-01 — Repository interface inconsistency
 
-`Expense.workTripId` exists in TypeScript but the `expenses` SQLite table has no `work_trip_id` column. Saving an expense with this field set silently discards it. The column must be added via `ALTER TABLE` before this field is usable.
+`ExpenseRepository` uses `findAll`/`findById`/`save`/`delete`.
+`TripRepository` and `BatchRepository` use `list`/`getById`/`create`/`softDelete`.
+The `Repository<T>` base interface is partially decorative.
 
-**Risk:** Low until Trip UI starts. Blocked by Phase 3B activation.
+**Risk:** Low — no runtime impact. Fix when starting Phase 4 sync layer.
 
-### TD-02 — ExpenseRepository.update() does not write workTripId
+### TD-02 — ID generation is not UUID v4
 
-`update()` in `expenseRepository.ts` lists every column explicitly and does not include `work_trip_id`. When TD-01 is resolved, this method must also be updated.
+`generateId()` uses `Date.now().toString(36) + Math.random()`. Sufficient for single-device local use; not suitable for cross-device sync.
 
-**Risk:** Same as TD-01.
+**Fix when:** Phase 4. Switch to `crypto.randomUUID()` (available in Hermes / RN 0.73+).
 
-### TD-03 — Repository interface inconsistency
+### TD-03 — No input validation on date and currency fields
 
-`ExpenseRepository` implements `Repository<T>` (`findAll`, `findById`, `save`, `delete`).
-`TripRepository` uses different names (`list`, `getById`, `create`, `softDelete`).
-The base interface is partially decorative — it does not enforce `update` or `softDelete`.
+The Add/Edit Expense form accepts any string for `date` and `currency`. An invalid date is stored without error.
 
-**Fix when:** Trip UI is activated. Options: align method names, or replace the base interface with a more complete one.
+**Fix when:** Phase 4 or a dedicated hardening sprint.
 
-### TD-04 — No input validation on date and currency fields
+### TD-04 — Dashboard totals are currency-unaware
 
-The Add Expense form accepts any string for `date` and `currency`. An invalid date (e.g. `"abc"`) is stored and displayed without error. A blank currency field falls back to `'USD'` in the store action but accepts any value otherwise.
+`expenseSelectors` sums all amounts regardless of currency. If a user mixes USD and EUR expenses, the total is meaningless.
 
-**Fix when:** Phase 3A. Add format validation before the Save button activates.
+**Risk:** Low for single-currency use. Fix during Phase 6.
 
-### TD-05 — ID generation is not UUID v4
-
-`generateId()` in `expenseRepository.ts` uses `Date.now().toString(36) + Math.random()`. This is sufficient for a single-device local app but not suitable for cross-device sync (Supabase phase).
-
-**Fix when:** Phase 4. Switch to `crypto.randomUUID()` (available in Hermes / RN 0.73+) or `expo-crypto`.
-
-### TD-06 — No automated tests
+### TD-05 — No automated tests
 
 Zero test files exist. All validation is manual.
 
-**Fix when:** After Phase 3 is stable. Suggested starting point: repository unit tests with an in-memory SQLite DB.
+**Fix when:** After Phase 3 is QA'd on web.
 
-### TD-07 — useLocalSearchParams id can theoretically be string[]
+### TD-06 — `useLocalSearchParams id` can be `string[]`
 
-`useLocalSearchParams<{ id: string }>()` in `expense/[id].tsx` — Expo Router types `id` as `string | string[]` in some configurations. The screen assumes `string` and passes it directly to `getExpenseById`. In practice this does not occur with a single dynamic segment, but the guard is absent.
+Detail screens assume `id` is `string`. Add `typeof id !== 'string'` guards during a hardening pass.
 
-**Risk:** Very low. Harmless to add a `typeof id !== 'string'` guard during Phase 3A.
+**Risk:** Very low in practice with a single dynamic segment.
 
 ---
 
@@ -192,27 +260,25 @@ Zero test files exist. All validation is manual.
 
 | Symptom | Explanation |
 |---|---|
-| CRLF warnings on `git add` | Windows line-ending conversion — harmless, no action needed |
-| `npm audit` moderate severity | Third-party transitive deps (uuid, etc.), unrelated to app logic |
-| `react-native-worklets` peer warning during install | Optional peer of `expo-modules-core`, not used by this app |
-| `react-dom` peer conflict when running `npx expo install` | Use `npm install --legacy-peer-deps` directly for packages that trigger it |
-| `expo-env.d.ts` not in git | Correctly gitignored; auto-generated by `expo start` on first run |
-| `.claude/` not in git | Correctly gitignored; Claude Code memory directory |
+| CRLF warnings on `git add` | Windows line-ending conversion — harmless |
+| `npm audit` moderate severity | Transitive deps, unrelated to app logic |
+| `react-native-worklets` peer warning | Optional peer of `expo-modules-core`, not used |
+| `react-dom` peer conflict | Use `npm install --legacy-peer-deps` for affected packages |
+| `expo-env.d.ts` not in git | Correctly gitignored; auto-generated by `expo start` |
+| `.claude/` not in git | Correctly gitignored |
 
 ---
 
 ## Next Sprint Recommendation
 
-**Recommended: Phase 3A — Complete Expense CRUD**
+**Recommended: Web QA + Polish**
 
-The detail screen already exists with the right structure and placeholder buttons. Completing CRUD closes the loop on the core user flow before any new domain (trips) is introduced.
+The workspace-centric navigation model is in place. Before adding Supabase, verify the full user flow on web:
 
-Suggested order within the sprint:
+1. **Run `npx expo start --web`** — confirm Dashboard, Expenses, Trips, Batches all load and navigate correctly
+2. **Desktop layout review** — verify 900px max-width centering, card grid, and quick actions render at 1280px+
+3. **Mobile regression check** — verify Dashboard reads well at 375px (cards 2-up, actions in a row)
+4. **Nav back-button audit** — pressing Back from Expenses/Trips/Batches returns to Dashboard
+5. **Currency-aware totals (TD-04)** — decide whether to scope into this sprint or defer to Phase 6
 
-1. **Delete** — simplest: confirmation `Alert` → `deleteExpense(id)` → `router.back()`
-2. **Edit form** — reuse Add Expense form layout, pre-fill from the loaded expense, submit via `updateExpense`
-3. **Status change** — `ActionSheet` or modal picker over the five statuses, submit via `updateExpense`
-
-After Phase 3A is QA'd and the full expense lifecycle works end-to-end, Phase 3B (Trip UI) can begin with low risk because the foundation is stable.
-
-**Do not start Phase 4 (Supabase) until Phase 3 is complete.** The local-first architecture rule exists precisely to ensure the offline flow is solid before sync is layered on top.
+After QA is clean, the codebase is ready for Phase 4 (Supabase auth + sync layer).
