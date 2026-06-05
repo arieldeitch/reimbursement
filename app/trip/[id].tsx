@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 
+import { exportTripCsv } from '@/utils/tripExport';
+
 import { StatusBadge } from '@/components/StatusBadge';
 import { TripStatusBadge } from '@/components/TripStatusBadge';
 import { useExpenseStore } from '@/store/expenseSlice';
@@ -32,10 +34,11 @@ export default function TripDetailScreen() {
   const deleteTrip  = useTripStore((s) => s.deleteTrip);
   const expenses    = useExpenseStore((s) => s.expenses);
 
-  const [trip, setTrip]         = useState<WorkTrip | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [trip, setTrip]           = useState<WorkTrip | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [notFound, setNotFound]   = useState(false);
+  const [deleting, setDeleting]   = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -77,6 +80,19 @@ export default function TripDetailScreen() {
     });
     return map;
   }, [tripExpenses]);
+
+  const handleExport = async () => {
+    if (!trip) return;
+    setExporting(true);
+    try {
+      await exportTripCsv(trip, tripExpenses);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Export Failed', 'Could not generate the CSV file. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleEdit = () => {
     if (!trip) return;
@@ -199,20 +215,32 @@ export default function TripDetailScreen() {
 
       <View style={styles.divider} />
 
-      <View style={styles.actions}>
-        <Pressable style={[styles.button, styles.outlineButton]} onPress={handleEdit}>
-          <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>
-        </Pressable>
-
+      <View style={styles.actionsStack}>
         <Pressable
-          style={[styles.button, styles.dangerButton, deleting && styles.dangerButtonDisabled]}
-          onPress={handleDelete}
-          disabled={deleting}
+          style={[styles.button, styles.exportButton, exporting && styles.exportButtonBusy]}
+          onPress={handleExport}
+          disabled={exporting}
         >
-          <Text style={[styles.buttonText, styles.dangerButtonText]}>
-            {deleting ? 'Deleting…' : 'Delete'}
+          <Text style={[styles.buttonText, styles.exportButtonText]}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
           </Text>
         </Pressable>
+
+        <View style={styles.actions}>
+          <Pressable style={[styles.button, styles.outlineButton]} onPress={handleEdit}>
+            <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.button, styles.dangerButton, deleting && styles.dangerButtonDisabled]}
+            onPress={handleDelete}
+            disabled={deleting}
+          >
+            <Text style={[styles.buttonText, styles.dangerButtonText]}>
+              {deleting ? 'Deleting…' : 'Delete'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
     </ScrollView>
@@ -344,6 +372,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111',
   },
+  actionsStack: {
+    gap: 10,
+  },
   actions: {
     flexDirection: 'row',
     gap: 12,
@@ -374,5 +405,15 @@ const styles = StyleSheet.create({
   },
   dangerButtonText: {
     color: '#DC2626',
+  },
+  exportButton: {
+    backgroundColor: '#059669',
+    borderWidth: 0,
+  },
+  exportButtonBusy: {
+    backgroundColor: '#6EE7B7',
+  },
+  exportButtonText: {
+    color: '#fff',
   },
 });
