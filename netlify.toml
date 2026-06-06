@@ -1,0 +1,13 @@
+[build]
+  command = "npx expo export --platform web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback — all routes are handled by the client-side Expo Router.
+# Without this, direct navigation to /expenses, /trips, etc. returns 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
