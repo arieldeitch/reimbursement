@@ -1,5 +1,12 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
+
+// Declares '/' (index) as the canonical entry point.
+// On native this sets the initial route; on web it signals to Expo Router
+// that the root URL should resolve to the Dashboard screen.
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
 import { Alert, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { Sidebar } from '@/components/Sidebar';

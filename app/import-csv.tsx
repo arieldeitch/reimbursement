@@ -382,7 +382,7 @@ function PreviewStep({
         })}
       </View>
 
-      {(!colMap.date || !colMap.title || !colMap.amount) && (
+      {(colMap.date === undefined || colMap.title === undefined || colMap.amount === undefined) && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorBannerText}>
             ⚠ Required columns (date, title, amount) could not be detected. Please check your CSV headers.
@@ -391,32 +391,61 @@ function PreviewStep({
       )}
 
       {/* Trip assignment */}
-      {openTrips.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>Assign to Trip (optional)</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+      <Text style={styles.sectionLabel}>Assign to Trip (optional)</Text>
+      {openTrips.length === 0 ? (
+        <View style={styles.noTripsHint}>
+          <Text style={styles.noTripsHintText}>
+            No open trips — create a trip first to link these expenses.
+          </Text>
+        </View>
+      ) : Platform.OS === 'web' ? (
+        React.createElement(
+          'select',
+          {
+            value: selectedTripId ?? '',
+            onChange: (e: any) => onSelectTrip(e.target.value || undefined),
+            style: {
+              width: '100%',
+              padding: '10px 12px',
+              fontSize: 15,
+              borderRadius: 8,
+              border: '1px solid #D1D5DB',
+              backgroundColor: '#fafafa',
+              color: '#111827',
+              fontFamily: 'inherit',
+              outline: 'none',
+              cursor: 'pointer',
+              marginBottom: 0,
+            } as React.CSSProperties,
+          },
+          React.createElement('option', { value: '' }, 'None — unassigned'),
+          ...openTrips.map((trip) =>
+            React.createElement('option', { key: trip.id, value: trip.id }, trip.name),
+          ),
+        )
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+          <Pressable
+            style={[styles.chip, !selectedTripId && styles.chipActive]}
+            onPress={() => onSelectTrip(undefined)}
+          >
+            <Text style={[styles.chipText, !selectedTripId && styles.chipTextActive]}>None</Text>
+          </Pressable>
+          {openTrips.map((trip) => (
             <Pressable
-              style={[styles.chip, !selectedTripId && styles.chipActive]}
-              onPress={() => onSelectTrip(undefined)}
+              key={trip.id}
+              style={[styles.chip, selectedTripId === trip.id && styles.chipActive]}
+              onPress={() => onSelectTrip(trip.id)}
             >
-              <Text style={[styles.chipText, !selectedTripId && styles.chipTextActive]}>None</Text>
-            </Pressable>
-            {openTrips.map((trip) => (
-              <Pressable
-                key={trip.id}
-                style={[styles.chip, selectedTripId === trip.id && styles.chipActive]}
-                onPress={() => onSelectTrip(trip.id)}
+              <Text
+                style={[styles.chipText, selectedTripId === trip.id && styles.chipTextActive]}
+                numberOfLines={1}
               >
-                <Text
-                  style={[styles.chipText, selectedTripId === trip.id && styles.chipTextActive]}
-                  numberOfLines={1}
-                >
-                  {trip.name}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </>
+                {trip.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
 
       {/* Preview table */}
@@ -654,6 +683,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#DC2626',
     fontWeight: '500',
+  },
+  noTripsHint: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  noTripsHintText: {
+    fontSize: 13,
+    color: '#9CA3AF',
   },
   chips: {
     flexDirection: 'row',
