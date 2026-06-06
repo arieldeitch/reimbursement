@@ -181,7 +181,6 @@ function TableHeaderRow() {
       <Text style={[styles.th, { width: W.currency }]}>Curr.</Text>
       <Text style={[styles.th, { width: W.status }]}>Status</Text>
       <Text style={[styles.th, { width: W.trip }]}>Trip</Text>
-      <Text style={[styles.th, { width: W.batch }]}>Batch</Text>
       <Text style={[styles.th, { width: W.receipt }]}>Receipt</Text>
     </View>
   );
@@ -190,11 +189,9 @@ function TableHeaderRow() {
 function TableRow({
   expense,
   tripName,
-  batchName,
 }: {
   expense: Expense;
   tripName?: string;
-  batchName?: string;
 }) {
   return (
     <Pressable
@@ -212,7 +209,6 @@ function TableRow({
         <StatusBadge status={expense.status} />
       </View>
       <Text style={[styles.td, { width: W.trip }]} numberOfLines={1}>{tripName ?? '—'}</Text>
-      <Text style={[styles.td, { width: W.batch }]} numberOfLines={1}>{batchName ?? '—'}</Text>
       <Text style={[styles.td, { width: W.receipt }]}>{expense.hasReceipt ? 'Yes' : 'No'}</Text>
     </Pressable>
   );
@@ -298,7 +294,6 @@ export default function ExpensesScreen() {
                 <TableRow
                   expense={item}
                   tripName={item.workTripId ? tripMap.get(item.workTripId) : undefined}
-                  batchName={item.reimbursementBatchId ? batchMap.get(item.reimbursementBatchId) : undefined}
                 />
               </View>
             ))

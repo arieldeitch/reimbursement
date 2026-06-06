@@ -42,15 +42,17 @@ export default function TripDetailScreen() {
   const isWide = width >= 768;
 
   const { id } = useLocalSearchParams<{ id: string }>();
-  const getTripById = useTripStore((s) => s.getTripById);
-  const deleteTrip  = useTripStore((s) => s.deleteTrip);
-  const expenses    = useExpenseStore((s) => s.expenses);
+  const getTripById    = useTripStore((s) => s.getTripById);
+  const deleteTrip     = useTripStore((s) => s.deleteTrip);
+  const expenses       = useExpenseStore((s) => s.expenses);
+  const updateExpense  = useExpenseStore((s) => s.updateExpense);
 
   const [trip, setTrip]           = useState<WorkTrip | null>(null);
   const [loading, setLoading]     = useState(true);
   const [notFound, setNotFound]   = useState(false);
   const [deleting, setDeleting]   = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting]             = useState(false);
+  const [togglingReceiptId, setTogglingReceiptId] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -104,6 +106,18 @@ export default function TripDetailScreen() {
     () => tripExpenses.filter((e) => !e.hasReceipt),
     [tripExpenses],
   );
+
+  const handleToggleReceipt = async (expense: (typeof tripExpenses)[number]) => {
+    if (togglingReceiptId === expense.id) return;
+    setTogglingReceiptId(expense.id);
+    try {
+      await updateExpense({ ...expense, hasReceipt: !expense.hasReceipt });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTogglingReceiptId(null);
+    }
+  };
 
   const handleExport = async () => {
     if (!trip) return;
@@ -187,6 +201,19 @@ export default function TripDetailScreen() {
         <>
           <View style={styles.divider} />
           <Text style={styles.sectionTitle}>Submission Readiness</Text>
+          <View style={[
+            styles.readinessBanner,
+            readiness.missingReceipt === 0 ? styles.readinessBannerOk : styles.readinessBannerWarn,
+          ]}>
+            <Text style={[
+              styles.readinessBannerText,
+              readiness.missingReceipt === 0 ? styles.readinessBannerTextOk : styles.readinessBannerTextWarn,
+            ]}>
+              {readiness.missingReceipt === 0
+                ? '✓ Ready to Submit'
+                : `⚠ ${readiness.missingReceipt} receipt${readiness.missingReceipt !== 1 ? 's' : ''} missing`}
+            </Text>
+          </View>
           <View style={styles.readinessBlock}>
             <ReadinessRow ok label={`${readiness.total} expense${readiness.total !== 1 ? 's' : ''} recorded`} />
             <ReadinessRow
@@ -323,19 +350,31 @@ export default function TripDetailScreen() {
             onPress={() => router.push(`/expense/${expense.id}`)}
           >
             <View style={styles.expenseRowLeft}>
-              <View style={styles.expenseRowTitleRow}>
-                <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
-                {!expense.hasReceipt && (
-                  <Text style={styles.expenseRowNoReceipt}>⚠</Text>
-                )}
-              </View>
+              <Text style={styles.expenseRowTitle} numberOfLines={1}>{expense.title}</Text>
               <View style={styles.expenseRowBadge}>
                 <StatusBadge status={expense.status} />
               </View>
             </View>
-            <Text style={styles.expenseRowAmount}>
-              {expense.currency} {expense.amount.toFixed(2)}
-            </Text>
+            <View style={styles.expenseRowRight}>
+              <Text style={styles.expenseRowAmount}>
+                {expense.currency} {expense.amount.toFixed(2)}
+              </Text>
+              <Pressable
+                onPress={() => handleToggleReceipt(expense)}
+                style={[
+                  styles.receiptToggle,
+                  expense.hasReceipt ? styles.receiptToggleOk : styles.receiptToggleWarn,
+                  togglingReceiptId === expense.id && styles.receiptToggleBusy,
+                ]}
+              >
+                <Text style={[
+                  styles.receiptToggleText,
+                  expense.hasReceipt ? styles.receiptToggleTextOk : styles.receiptToggleTextWarn,
+                ]}>
+                  {expense.hasReceipt ? '✓' : '⚠'}
+                </Text>
+              </Pressable>
+            </View>
           </Pressable>
         ))
       )}
@@ -606,5 +645,65 @@ const styles = StyleSheet.create({
   },
   addExpenseButtonText: {
     color: '#fff',
+  },
+  readinessBanner: {
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  readinessBannerOk: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+  },
+  readinessBannerWarn: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  readinessBannerText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  readinessBannerTextOk: {
+    color: '#059669',
+  },
+  readinessBannerTextWarn: {
+    color: '#D97706',
+  },
+  expenseRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  receiptToggle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  receiptToggleOk: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#059669',
+  },
+  receiptToggleWarn: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#D97706',
+  },
+  receiptToggleBusy: {
+    opacity: 0.5,
+  },
+  receiptToggleText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  receiptToggleTextOk: {
+    color: '#059669',
+  },
+  receiptToggleTextWarn: {
+    color: '#D97706',
   },
 });

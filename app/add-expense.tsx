@@ -40,6 +40,7 @@ export default function AddExpenseScreen() {
   const [category, setCategory]       = useState<ExpenseCategory>('other');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('personal_card');
   const [notes, setNotes]             = useState('');
+  const [hasReceipt, setHasReceipt]   = useState(true);
   const [saving, setSaving]           = useState(false);
 
   const isValid = title.trim().length > 0 && parseFloat(amount) > 0;
@@ -57,6 +58,7 @@ export default function AddExpenseScreen() {
         paymentMethod,
         notes: notes.trim() || undefined,
         workTripId: tripId ?? undefined,
+        hasReceipt,
       });
       router.back();
     } catch (e) {
@@ -150,6 +152,22 @@ export default function AddExpenseScreen() {
           ))}
         </ScrollView>
 
+        <Text style={styles.label}>Receipt</Text>
+        <View style={styles.receiptRow}>
+          <Pressable
+            style={[styles.chip, hasReceipt && styles.chipActive]}
+            onPress={() => setHasReceipt(true)}
+          >
+            <Text style={[styles.chipText, hasReceipt && styles.chipTextActive]}>✓ Present</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.chip, !hasReceipt && styles.chipMissing]}
+            onPress={() => setHasReceipt(false)}
+          >
+            <Text style={[styles.chipText, !hasReceipt && styles.chipMissingText]}>⚠ Missing</Text>
+          </Pressable>
+        </View>
+
         <Text style={styles.label}>Notes (optional)</Text>
         <TextInput
           style={[styles.input, styles.notesInput]}
@@ -230,6 +248,18 @@ const styles = StyleSheet.create({
   notesInput: {
     height: 88,
     paddingTop: 10,
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  chipMissing: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#D97706',
+  },
+  chipMissingText: {
+    color: '#D97706',
+    fontWeight: '600',
   },
   chips: {
     flexDirection: 'row',

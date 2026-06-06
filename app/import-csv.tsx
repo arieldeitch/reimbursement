@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,13 +8,15 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 
 import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
-import type { ExpenseCategory } from '@/types/expense';
+import { PAYMENT_METHODS } from '@/types/expense';
+import type { Expense, ExpenseCategory, PaymentMethod } from '@/types/expense';
 
 // ─── CSV Parser ───────────────────────────────────────────────────────────────
 
@@ -95,11 +97,23 @@ type Step = 'upload' | 'preview';
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
+function isDuplicateOf(row: ParsedRow, existing: Expense[]): boolean {
+  if (!row.date || !row.title || row.amount === null) return false;
+  const titleNorm = row.title.trim().toLowerCase();
+  return existing.some(
+    (e) =>
+      e.date === row.date &&
+      e.title.trim().toLowerCase() === titleNorm &&
+      Math.abs(e.amount - row.amount!) <= 0.01,
+  );
+}
+
 export default function ImportCSVScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
   const addExpense = useExpenseStore((s) => s.addExpense);
+  const expenses   = useExpenseStore((s) => s.expenses);
   const trips      = useTripStore((s) => s.trips);
   const openTrips  = trips.filter((t) => t.status === 'open');
 
@@ -111,10 +125,22 @@ export default function ImportCSVScreen() {
   const [colMap, setColMap]       = useState<Record<string, number>>({});
   const [rows, setRows]           = useState<ParsedRow[]>([]);
   const [selectedTripId, setSelectedTripId] = useState<string | undefined>();
+  const [paymentMethod, setPaymentMethod]   = useState<PaymentMethod>('personal_card');
+  const [currencyOverride, setCurrencyOverride] = useState('');
   const [importing, setImporting] = useState(false);
 
   const validRows   = rows.filter((r) => r.isValid);
   const invalidRows = rows.filter((r) => !r.isValid);
+
+  const missingCurrency = rows.length > 0 && colMap.currency === undefined;
+
+  const duplicateIndices = useMemo<Set<number>>(() => {
+    const set = new Set<number>();
+    rows.forEach((row, i) => {
+      if (row.isValid && isDuplicateOf(row, expenses)) set.add(i);
+    });
+    return set;
+  }, [rows, expenses]);
 
   function processFileText(text: string, name: string) {
     const parsed = parseCSV(text);
@@ -193,16 +219,19 @@ export default function ImportCSVScreen() {
 
   async function handleImport() {
     if (validRows.length === 0) return;
+    const resolvedCurrency = missingCurrency && currencyOverride.trim()
+      ? currencyOverride.trim().toUpperCase().slice(0, 3)
+      : undefined;
     setImporting(true);
     try {
       for (const row of validRows) {
         await addExpense({
           title: row.title!,
           amount: row.amount!,
-          currency: row.currency,
+          currency: resolvedCurrency ?? row.currency,
           date: row.date!,
           category: row.category,
-          paymentMethod: 'personal_card',
+          paymentMethod,
           notes: row.notes || undefined,
           workTripId: selectedTripId,
         });
@@ -251,6 +280,12 @@ export default function ImportCSVScreen() {
             rows={rows}
             validRows={validRows}
             invalidRows={invalidRows}
+            duplicateIndices={duplicateIndices}
+            missingCurrency={missingCurrency}
+            currencyOverride={currencyOverride}
+            onCurrencyOverride={setCurrencyOverride}
+            paymentMethod={paymentMethod}
+            onPaymentMethod={setPaymentMethod}
             openTrips={openTrips}
             selectedTripId={selectedTripId}
             onSelectTrip={setSelectedTripId}
@@ -318,6 +353,12 @@ interface PreviewProps {
   rows: ParsedRow[];
   validRows: ParsedRow[];
   invalidRows: ParsedRow[];
+  duplicateIndices: Set<number>;
+  missingCurrency: boolean;
+  currencyOverride: string;
+  onCurrencyOverride: (v: string) => void;
+  paymentMethod: PaymentMethod;
+  onPaymentMethod: (v: PaymentMethod) => void;
   openTrips: { id: string; name: string }[];
   selectedTripId: string | undefined;
   onSelectTrip: (id: string | undefined) => void;
@@ -333,6 +374,12 @@ function PreviewStep({
   rows,
   validRows,
   invalidRows,
+  duplicateIndices,
+  missingCurrency,
+  currencyOverride,
+  onCurrencyOverride,
+  paymentMethod,
+  onPaymentMethod,
   openTrips,
   selectedTripId,
   onSelectTrip,
@@ -341,6 +388,7 @@ function PreviewStep({
   importing,
 }: PreviewProps) {
   const previewRows = rows.slice(0, 10);
+  const duplicateCount = duplicateIndices.size;
 
   return (
     <View>
@@ -363,7 +411,20 @@ function PreviewStep({
             <Text style={styles.statBadgeText}>{invalidRows.length} errors</Text>
           </View>
         )}
+        {duplicateCount > 0 && (
+          <View style={[styles.statBadge, styles.statBadgeDuplicate]}>
+            <Text style={styles.statBadgeText}>{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''}</Text>
+          </View>
+        )}
       </View>
+
+      {duplicateCount > 0 && (
+        <View style={styles.duplicateBanner}>
+          <Text style={styles.duplicateBannerText}>
+            ⚠ {duplicateCount} row{duplicateCount !== 1 ? 's' : ''} may already exist (same date, title, and amount). They will still be imported — review before confirming.
+          </Text>
+        </View>
+      )}
 
       {/* Detected columns */}
       <Text style={styles.sectionLabel}>Detected Mapping</Text>
@@ -448,6 +509,43 @@ function PreviewStep({
         </ScrollView>
       )}
 
+      {/* Payment method */}
+      <Text style={styles.sectionLabel}>Payment Method</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+        {PAYMENT_METHODS.map((pm) => (
+          <Pressable
+            key={pm.value}
+            style={[styles.chip, paymentMethod === pm.value && styles.chipActive]}
+            onPress={() => onPaymentMethod(pm.value)}
+          >
+            <Text style={[styles.chipText, paymentMethod === pm.value && styles.chipTextActive]}>
+              {pm.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {/* Currency override */}
+      {missingCurrency && (
+        <>
+          <Text style={styles.sectionLabel}>Currency</Text>
+          <View style={styles.currencyWarning}>
+            <Text style={styles.currencyWarningText}>
+              ⚠ No currency column detected. All expenses will use the currency below.
+            </Text>
+          </View>
+          <TextInput
+            style={styles.currencyInput}
+            value={currencyOverride}
+            onChangeText={onCurrencyOverride}
+            placeholder="USD"
+            placeholderTextColor="#aaa"
+            maxLength={3}
+            autoCapitalize="characters"
+          />
+        </>
+      )}
+
       {/* Preview table */}
       <Text style={styles.sectionLabel}>Preview (first {previewRows.length} rows)</Text>
       <View style={styles.table}>
@@ -457,22 +555,29 @@ function PreviewStep({
           <Text style={[styles.tableCell, styles.tableCellAmount, styles.tableHeaderText]}>Amount</Text>
           <Text style={[styles.tableCell, styles.tableCellStatus, styles.tableHeaderText]}>OK</Text>
         </View>
-        {previewRows.map((row, i) => (
-          <View key={i} style={[styles.tableRow, !row.isValid && styles.tableRowInvalid]}>
-            <Text style={[styles.tableCell, styles.tableCellDate]} numberOfLines={1}>
-              {row.date ?? '—'}
-            </Text>
-            <Text style={[styles.tableCell, styles.tableCellTitle]} numberOfLines={1}>
-              {row.title ?? '—'}
-            </Text>
-            <Text style={[styles.tableCell, styles.tableCellAmount]} numberOfLines={1}>
-              {row.amount !== null ? `${row.currency} ${row.amount.toFixed(2)}` : '—'}
-            </Text>
-            <Text style={[styles.tableCell, styles.tableCellStatus]}>
-              {row.isValid ? '✓' : '✗'}
-            </Text>
-          </View>
-        ))}
+        {previewRows.map((row, i) => {
+          const isDup = duplicateIndices.has(i);
+          return (
+            <View key={i} style={[
+              styles.tableRow,
+              !row.isValid && styles.tableRowInvalid,
+              isDup && styles.tableRowDuplicate,
+            ]}>
+              <Text style={[styles.tableCell, styles.tableCellDate]} numberOfLines={1}>
+                {row.date ?? '—'}
+              </Text>
+              <Text style={[styles.tableCell, styles.tableCellTitle]} numberOfLines={1}>
+                {row.title ?? '—'}
+              </Text>
+              <Text style={[styles.tableCell, styles.tableCellAmount]} numberOfLines={1}>
+                {row.amount !== null ? `${row.currency} ${row.amount.toFixed(2)}` : '—'}
+              </Text>
+              <Text style={[styles.tableCell, styles.tableCellStatus, isDup && styles.tableCellDuplicate]}>
+                {!row.isValid ? '✗' : isDup ? '⚠' : '✓'}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       {/* Actions */}
@@ -629,6 +734,9 @@ const styles = StyleSheet.create({
   statBadgeInvalid: {
     backgroundColor: '#FEF2F2',
   },
+  statBadgeDuplicate: {
+    backgroundColor: '#FFFBEB',
+  },
   statBadgeText: {
     fontSize: 13,
     fontWeight: '600',
@@ -734,6 +842,27 @@ const styles = StyleSheet.create({
   tableRowInvalid: {
     backgroundColor: '#FEF2F2',
   },
+  tableRowDuplicate: {
+    backgroundColor: '#FFFBEB',
+  },
+  tableCellDuplicate: {
+    color: '#D97706',
+    fontWeight: '700',
+  },
+  duplicateBanner: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 4,
+  },
+  duplicateBannerText: {
+    fontSize: 13,
+    color: '#92400E',
+    fontWeight: '500',
+    lineHeight: 18,
+  },
   tableHeader: {
     backgroundColor: '#F9FAFB',
   },
@@ -785,5 +914,29 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
+  },
+  currencyWarning: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 8,
+  },
+  currencyWarningText: {
+    fontSize: 13,
+    color: '#92400E',
+    fontWeight: '500',
+  },
+  currencyInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: '#111',
+    backgroundColor: '#fafafa',
+    width: 90,
   },
 });

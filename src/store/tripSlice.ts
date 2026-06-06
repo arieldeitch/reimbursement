@@ -17,7 +17,7 @@ interface TripState {
   trips: WorkTrip[];
   isLoading: boolean;
   loadTrips: () => Promise<void>;
-  addTrip: (input: AddTripInput) => Promise<void>;
+  addTrip: (input: AddTripInput) => Promise<WorkTrip>;
   getTripById: (id: string) => Promise<WorkTrip | null>;
   updateTrip: (trip: WorkTrip) => Promise<void>;
   deleteTrip: (id: string) => Promise<void>;
@@ -44,6 +44,7 @@ export const useTripStore = create<TripState>((set, get) => ({
       deletedAt: null,
     });
     set((state) => ({ trips: [trip, ...state.trips] }));
+    return trip;
   },
 
   getTripById: async (id) => {

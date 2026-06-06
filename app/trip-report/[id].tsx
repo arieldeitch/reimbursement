@@ -84,6 +84,19 @@ function MetaPanel({
       <Divider />
 
       <SectionTitle>Receipt Readiness</SectionTitle>
+      <View style={[
+        styles.readinessBanner,
+        expenses.missingReceipt === 0 ? styles.readinessBannerOk : styles.readinessBannerWarn,
+      ]}>
+        <Text style={[
+          styles.readinessBannerText,
+          expenses.missingReceipt === 0 ? styles.readinessBannerTextOk : styles.readinessBannerTextWarn,
+        ]}>
+          {expenses.missingReceipt === 0
+            ? '✓ Ready to Submit'
+            : `⚠ ${expenses.missingReceipt} receipt${expenses.missingReceipt !== 1 ? 's' : ''} missing`}
+        </Text>
+      </View>
       <View style={styles.statsBlock}>
         <StatRow label="Total expenses"   value={expenses.total} />
         <StatRow label="Receipts present" value={expenses.withReceipt} />
@@ -501,6 +514,34 @@ const styles = StyleSheet.create({
   emptyNote: {
     fontSize: 13,
     color: '#9CA3AF',
+  },
+
+  // Readiness banner
+  readinessBanner: {
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  readinessBannerOk: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+  },
+  readinessBannerWarn: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  readinessBannerText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  readinessBannerTextOk: {
+    color: '#059669',
+  },
+  readinessBannerTextWarn: {
+    color: '#D97706',
   },
 
   // Export button

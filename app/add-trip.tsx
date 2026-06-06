@@ -40,7 +40,7 @@ export default function AddTripScreen() {
     if (!isValid) return;
     setSaving(true);
     try {
-      await addTrip({
+      const newTrip = await addTrip({
         name: name.trim(),
         destination: destination.trim(),
         client: client.trim() || undefined,
@@ -49,7 +49,7 @@ export default function AddTripScreen() {
         notes: notes.trim() || undefined,
         status: 'open',
       });
-      router.back();
+      router.replace(`/trip/${newTrip.id}`);
     } catch (e) {
       console.error(e);
       Alert.alert('Error', 'Failed to save trip. Please try again.');

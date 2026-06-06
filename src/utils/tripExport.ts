@@ -112,7 +112,7 @@ function sanitizeFilename(name: string): string {
 export async function exportTripCsv(trip: WorkTrip, expenses: Expense[]): Promise<void> {
   const csv = buildTripCsv(trip, expenses);
   const today = new Date().toISOString().slice(0, 10);
-  const filename = `${sanitizeFilename(trip.name)}_${today}_expenses.csv`;
+  const filename = `${sanitizeFilename(trip.name)}_${today}.csv`;
 
   if (Platform.OS === 'web') {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

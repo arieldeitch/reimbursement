@@ -12,6 +12,7 @@ export interface AddExpenseInput {
   paymentMethod: PaymentMethod;
   notes?: string;
   workTripId?: string;
+  hasReceipt?: boolean;
 }
 
 interface ExpenseState {
@@ -44,7 +45,7 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
     const expense = await getExpenseRepository().save({
       ...input,
       status: 'unsubmitted',
-      hasReceipt: false,
+      hasReceipt: input.hasReceipt ?? false,
       deletedAt: null,
     });
     set((state) => ({ expenses: [expense, ...state.expenses] }));
