@@ -59,6 +59,8 @@ export default function RootLayout() {
           <Stack.Screen name="edit-batch"        options={{ title: 'Edit Batch' }} />
           <Stack.Screen name="trip-report/[id]"  options={{ title: 'Trip Report' }} />
           <Stack.Screen name="batch-report/[id]" options={{ title: 'Batch Report' }} />
+          <Stack.Screen name="about"             options={{ title: 'About',    headerShown: !isDesktop }} />
+          <Stack.Screen name="settings"          options={{ title: 'Settings', headerShown: !isDesktop }} />
         </Stack>
       </View>
     </View>

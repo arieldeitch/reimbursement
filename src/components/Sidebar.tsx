@@ -8,12 +8,17 @@ const NAV_ITEMS = [
   { label: 'Batches',   href: '/batches' },
 ] as const;
 
-type NavHref = (typeof NAV_ITEMS)[number]['href'];
+const BOTTOM_ITEMS = [
+  { label: 'Settings', href: '/settings' },
+  { label: 'About',    href: '/about' },
+] as const;
+
+type AnyHref = (typeof NAV_ITEMS)[number]['href'] | (typeof BOTTOM_ITEMS)[number]['href'];
 
 export function Sidebar() {
   const pathname = usePathname();
 
-  function isActive(href: NavHref): boolean {
+  function isActive(href: AnyHref): boolean {
     if (href === '/') return pathname === '/';
     return pathname === href || pathname.startsWith(href + '/');
   }
@@ -22,6 +27,19 @@ export function Sidebar() {
     <View style={styles.sidebar}>
       <Text style={styles.brand}>Reimbursement</Text>
       {NAV_ITEMS.map(({ label, href }) => {
+        const active = isActive(href);
+        return (
+          <Pressable
+            key={href}
+            style={[styles.item, active && styles.itemActive]}
+            onPress={() => router.push(href)}
+          >
+            <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
+          </Pressable>
+        );
+      })}
+      <View style={styles.spacer} />
+      {BOTTOM_ITEMS.map(({ label, href }) => {
         const active = isActive(href);
         return (
           <Pressable
@@ -43,6 +61,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     paddingTop: 40,
     paddingHorizontal: 12,
+    paddingBottom: 16,
+  },
+  spacer: {
+    flex: 1,
   },
   brand: {
     fontSize: 12,
