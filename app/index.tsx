@@ -1,4 +1,4 @@
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useMemo } from 'react';
 import {
   Pressable,
@@ -9,48 +9,39 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
-import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
-import { expenseSelectors, totalsByCurrencyAndStatus } from '@/store/selectors';
+import { totalsByCurrencyAndStatus } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
-
-const STATUS_CARDS = [
-  { key: 'unsubmitted' as const, label: 'Unsubmitted', accent: '#F59E0B', bg: '#FFFBEB' },
-  { key: 'submitted'   as const, label: 'Submitted',   accent: '#3B82F6', bg: '#EFF6FF' },
-  { key: 'approved'    as const, label: 'Approved',    accent: '#10B981', bg: '#ECFDF5' },
-  { key: 'paid'        as const, label: 'Paid',        accent: '#0D9488', bg: '#F0FDFA' },
-];
 
 export default function DashboardScreen() {
   const { width } = useWindowDimensions();
-  const isWide     = width >= 768;
-  const isVeryWide = width >= 1100;
+  const isWide = width >= 768;
 
   const expenses = useExpenseStore((s) => s.expenses);
   const trips    = useTripStore((s) => s.trips);
-  const batches  = useBatchStore((s) => s.batches);
 
-  const stats = useMemo(() => ({
-    unsubmitted: {
-      byCurrency: totalsByCurrencyAndStatus(expenses, 'unsubmitted'),
-      count: expenseSelectors.countUnsubmitted(expenses),
-    },
-    submitted: {
-      byCurrency: totalsByCurrencyAndStatus(expenses, 'submitted'),
-      count: expenseSelectors.countSubmitted(expenses),
-    },
-    approved: {
-      byCurrency: totalsByCurrencyAndStatus(expenses, 'approved'),
-      count: expenseSelectors.countApproved(expenses),
-    },
-    paid: {
-      byCurrency: totalsByCurrencyAndStatus(expenses, 'paid'),
-      count: expenseSelectors.countPaid(expenses),
-    },
-  }), [expenses]);
+  const openTrips = useMemo(
+    () => trips.filter((t) => t.status === 'open'),
+    [trips],
+  );
 
-  const openTrips    = useMemo(() => trips.filter((t) => t.status === 'open').length, [trips]);
-  const draftBatches = useMemo(() => batches.filter((b) => b.status === 'draft').length, [batches]);
+  const unsubmittedByCurrency = useMemo(
+    () => totalsByCurrencyAndStatus(expenses, 'unsubmitted'),
+    [expenses],
+  );
+
+  const unsubmittedCount = useMemo(
+    () => expenses.filter((e) => e.status === 'unsubmitted').length,
+    [expenses],
+  );
+
+  const expenseCountByTrip = useMemo(() => {
+    const map: Record<string, number> = {};
+    expenses.forEach((e) => {
+      if (e.workTripId) map[e.workTripId] = (map[e.workTripId] ?? 0) + 1;
+    });
+    return map;
+  }, [expenses]);
 
   return (
     <ScrollView
@@ -61,71 +52,83 @@ export default function DashboardScreen() {
 
         <Text style={[styles.heading, isWide && styles.headingWide]}>Dashboard</Text>
 
-        <Text style={styles.sectionLabel}>Expense Overview</Text>
-        <View style={styles.grid}>
-          {STATUS_CARDS.map(({ key, label, accent, bg }) => {
-            const s = stats[key];
+        {/* Primary actions */}
+        <View style={[styles.actionRow, isWide && styles.actionRowWide]}>
+          <Pressable
+            style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
+            onPress={() => router.push('/add-trip')}
+          >
+            <Text style={styles.primaryBtnText}>+ Create Trip</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
+            onPress={() => router.push('/import-csv')}
+          >
+            <Text style={styles.secondaryBtnText}>↑ Import CSV</Text>
+          </Pressable>
+        </View>
+
+        {/* Open trips */}
+        <Text style={styles.sectionLabel}>Continue a Trip</Text>
+        {openTrips.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No open trips. Create one to get started.</Text>
+          </View>
+        ) : (
+          openTrips.slice(0, 5).map((trip) => {
+            const count = expenseCountByTrip[trip.id] ?? 0;
             return (
               <Pressable
-                key={key}
-                style={({ pressed }) => [
-                  styles.card,
-                  { backgroundColor: bg, borderLeftColor: accent },
-                  isVeryWide && styles.cardFourCol,
-                  pressed && styles.cardPressed,
-                ]}
-                onPress={() => router.push(`/expenses?status=${key}`)}
+                key={trip.id}
+                style={({ pressed }) => [styles.tripCard, pressed && styles.tripCardPressed]}
+                onPress={() => router.push(`/trip/${trip.id}`)}
               >
-                <Text style={[styles.cardLabel, { color: accent }]}>{label}</Text>
-                {Object.keys(s.byCurrency).length === 0 ? (
-                  <Text style={styles.cardAmount}>—</Text>
-                ) : (
-                  Object.entries(s.byCurrency)
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([currency, amount]) => (
-                      <Text key={currency} style={styles.cardAmount}>
-                        {currency} {amount.toFixed(2)}
-                      </Text>
-                    ))
-                )}
-                <Text style={styles.cardCount}>
-                  {s.count} expense{s.count !== 1 ? 's' : ''}
-                </Text>
+                <View style={styles.tripCardBody}>
+                  <Text style={styles.tripName} numberOfLines={1}>{trip.name}</Text>
+                  <Text style={styles.tripMeta}>
+                    {trip.destination}  ·  {trip.startDate} → {trip.endDate}
+                  </Text>
+                </View>
+                <View style={styles.tripCountBadge}>
+                  <Text style={styles.tripCountText}>{count}</Text>
+                  <Text style={styles.tripCountLabel}>expense{count !== 1 ? 's' : ''}</Text>
+                </View>
               </Pressable>
             );
-          })}
-        </View>
+          })
+        )}
+        {openTrips.length > 5 && (
+          <Pressable onPress={() => router.push('/trips')}>
+            <Text style={styles.viewAllLink}>View all {openTrips.length} open trips →</Text>
+          </Pressable>
+        )}
 
-        <Text style={styles.sectionLabel}>Open Items</Text>
-        <View style={styles.openRow}>
-          <View style={[styles.openCard, isWide && styles.openCardWide]}>
-            <Text style={styles.openCount}>{openTrips}</Text>
-            <Text style={styles.openLabel}>open trip{openTrips !== 1 ? 's' : ''}</Text>
+        {/* Pending summary */}
+        <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>Pending Reimbursement</Text>
+        {unsubmittedCount === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No unsubmitted expenses.</Text>
           </View>
-          <View style={[styles.openCard, isWide && styles.openCardWide]}>
-            <Text style={styles.openCount}>{draftBatches}</Text>
-            <Text style={styles.openLabel}>draft batch{draftBatches !== 1 ? 'es' : ''}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionLabel}>Quick Actions</Text>
-        <View style={styles.actions}>
-          <Link href="/expenses" asChild>
-            <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
-              <Text style={styles.actionText}>Expenses</Text>
-            </Pressable>
-          </Link>
-          <Link href="/trips" asChild>
-            <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
-              <Text style={styles.actionText}>Trips</Text>
-            </Pressable>
-          </Link>
-          <Link href="/batches" asChild>
-            <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
-              <Text style={styles.actionText}>Batches</Text>
-            </Pressable>
-          </Link>
-        </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.summaryCard, pressed && styles.summaryCardPressed]}
+            onPress={() => router.push('/expenses?status=unsubmitted')}
+          >
+            <View>
+              {Object.entries(unsubmittedByCurrency)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([currency, amount]) => (
+                  <Text key={currency} style={styles.summaryAmount}>
+                    {currency} {amount.toFixed(2)}
+                  </Text>
+                ))}
+              <Text style={styles.summaryCount}>
+                {unsubmittedCount} unsubmitted expense{unsubmittedCount !== 1 ? 's' : ''}
+              </Text>
+            </View>
+            <Text style={styles.summaryArrow}>→</Text>
+          </Pressable>
+        )}
 
       </View>
     </ScrollView>
@@ -150,7 +153,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   containerWide: {
-    maxWidth: 900,
+    maxWidth: 720,
   },
   heading: {
     fontSize: 26,
@@ -162,6 +165,44 @@ const styles = StyleSheet.create({
     fontSize: 34,
     marginBottom: 32,
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 32,
+  },
+  actionRowWide: {
+    gap: 16,
+  },
+  primaryBtn: {
+    flex: 1,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  primaryBtnPressed: {
+    backgroundColor: '#1D4ED8',
+  },
+  primaryBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  secondaryBtn: {
+    flex: 1,
+    backgroundColor: '#059669',
+    borderRadius: 10,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  secondaryBtnPressed: {
+    backgroundColor: '#047857',
+  },
+  secondaryBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -169,88 +210,101 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 10,
-    marginTop: 4,
   },
-  grid: {
+  sectionLabelSpaced: {
+    marginTop: 28,
+  },
+  emptyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 4,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+  },
+  tripCard: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 28,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  card: {
-    flexBasis: '47%',
-    flexGrow: 1,
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 16,
+  tripCardPressed: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
   },
-  cardFourCol: {
-    flexBasis: '22%',
+  tripCardBody: {
+    flex: 1,
+    marginRight: 12,
   },
-  cardPressed: {
-    opacity: 0.85,
+  tripName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
   },
-  cardLabel: {
+  tripMeta: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  tripCountBadge: {
+    alignItems: 'center',
+    minWidth: 48,
+  },
+  tripCountText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  tripCountLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 10,
+    color: '#9CA3AF',
+    marginTop: 1,
   },
-  cardAmount: {
+  viewAllLink: {
+    fontSize: 13,
+    color: '#2563EB',
+    fontWeight: '600',
+    marginTop: 4,
+    marginBottom: 4,
+    paddingHorizontal: 4,
+  },
+  summaryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  summaryCardPressed: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  summaryAmount: {
     fontSize: 22,
     fontWeight: '800',
     color: '#111827',
   },
-  cardCount: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  openRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 28,
-  },
-  openCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  openCardWide: {
-    paddingVertical: 24,
-  },
-  openCount: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  openLabel: {
+  summaryCount: {
     fontSize: 13,
     color: '#6B7280',
     marginTop: 4,
   },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  action: {
-    flex: 1,
-    backgroundColor: '#2563EB',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  actionPressed: {
-    backgroundColor: '#1D4ED8',
-  },
-  actionText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
+  summaryArrow: {
+    fontSize: 20,
+    color: '#D1D5DB',
+    marginLeft: 'auto',
   },
 });

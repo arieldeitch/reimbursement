@@ -216,6 +216,15 @@ export default function TripDetailScreen() {
       <View style={styles.divider} />
 
       <View style={styles.actionsStack}>
+        {trip.status === 'open' && (
+          <Pressable
+            style={[styles.button, styles.addExpenseButton]}
+            onPress={() => router.push({ pathname: '/add-expense', params: { tripId: trip.id } })}
+          >
+            <Text style={[styles.buttonText, styles.addExpenseButtonText]}>+ Add Expense</Text>
+          </Pressable>
+        )}
+
         <Pressable
           style={[styles.button, styles.exportButton, exporting && styles.exportButtonBusy]}
           onPress={handleExport}
@@ -589,6 +598,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#6EE7B7',
   },
   exportButtonText: {
+    color: '#fff',
+  },
+  addExpenseButton: {
+    backgroundColor: '#2563EB',
+    borderWidth: 0,
+  },
+  addExpenseButtonText: {
     color: '#fff',
   },
 });

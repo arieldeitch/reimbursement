@@ -13,6 +13,8 @@ import {
   View,
 } from 'react-native';
 
+import { DateField } from '@/components/DateField';
+
 import { useBatchStore } from '@/store/batchSlice';
 import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
@@ -167,16 +169,7 @@ export default function EditExpenseScreen() {
           </View>
         </View>
 
-        <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={date}
-          onChangeText={setDate}
-          placeholder="2025-01-15"
-          placeholderTextColor="#aaa"
-          keyboardType="numbers-and-punctuation"
-          returnKeyType="next"
-        />
+        <DateField label="Date" value={date} onChange={setDate} />
 
         <Text style={styles.label}>Category</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
@@ -232,7 +225,7 @@ export default function EditExpenseScreen() {
           ))}
         </ScrollView>
 
-        <Text style={styles.label}>Batch (optional)</Text>
+        <Text style={styles.label}>Submission (optional)</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
           <Pressable
             style={[styles.chip, !reimbursementBatchId && styles.chipActive]}

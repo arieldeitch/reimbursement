@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
@@ -12,7 +12,9 @@ import {
   View,
 } from 'react-native';
 
+import { DateField } from '@/components/DateField';
 import { useExpenseStore } from '@/store/expenseSlice';
+import { useTripStore } from '@/store/tripSlice';
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
@@ -25,16 +27,20 @@ function todayISO(): string {
 }
 
 export default function AddExpenseScreen() {
+  const { tripId } = useLocalSearchParams<{ tripId?: string }>();
   const addExpense = useExpenseStore((s) => s.addExpense);
+  const trips      = useTripStore((s) => s.trips);
 
-  const [title, setTitle] = useState('');
-  const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState('USD');
-  const [date, setDate] = useState(todayISO);
-  const [category, setCategory] = useState<ExpenseCategory>('other');
+  const preselectedTrip = tripId ? trips.find((t) => t.id === tripId) : undefined;
+
+  const [title, setTitle]             = useState('');
+  const [amount, setAmount]           = useState('');
+  const [currency, setCurrency]       = useState('USD');
+  const [date, setDate]               = useState(todayISO);
+  const [category, setCategory]       = useState<ExpenseCategory>('other');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('personal_card');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [notes, setNotes]             = useState('');
+  const [saving, setSaving]           = useState(false);
 
   const isValid = title.trim().length > 0 && parseFloat(amount) > 0;
 
@@ -50,6 +56,7 @@ export default function AddExpenseScreen() {
         category,
         paymentMethod,
         notes: notes.trim() || undefined,
+        workTripId: tripId ?? undefined,
       });
       router.back();
     } catch (e) {
@@ -66,6 +73,12 @@ export default function AddExpenseScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView style={styles.flex} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+
+        {preselectedTrip && (
+          <View style={styles.tripBanner}>
+            <Text style={styles.tripBannerText}>Trip: {preselectedTrip.name}</Text>
+          </View>
+        )}
 
         <Text style={styles.label}>Title *</Text>
         <TextInput
@@ -105,16 +118,7 @@ export default function AddExpenseScreen() {
           </View>
         </View>
 
-        <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={date}
-          onChangeText={setDate}
-          placeholder="2025-01-15"
-          placeholderTextColor="#aaa"
-          keyboardType="numbers-and-punctuation"
-          returnKeyType="next"
-        />
+        <DateField label="Date" value={date} onChange={setDate} />
 
         <Text style={styles.label}>Category</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
@@ -179,6 +183,20 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
     backgroundColor: '#fff',
+  },
+  tripBanner: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 4,
+    borderLeftWidth: 3,
+    borderLeftColor: ACCENT,
+  },
+  tripBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: ACCENT,
   },
   row: {
     flexDirection: 'row',

@@ -11,6 +11,7 @@ export interface AddExpenseInput {
   category: ExpenseCategory;
   paymentMethod: PaymentMethod;
   notes?: string;
+  workTripId?: string;
 }
 
 interface ExpenseState {

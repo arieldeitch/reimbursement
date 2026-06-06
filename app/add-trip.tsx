@@ -12,17 +12,12 @@ import {
   View,
 } from 'react-native';
 
+import { DateField } from '@/components/DateField';
 import { useTripStore } from '@/store/tripSlice';
-import type { TripStatus } from '@/types/trip';
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
-
-const STATUS_OPTIONS: { value: TripStatus; label: string }[] = [
-  { value: 'open',   label: 'Open'   },
-  { value: 'closed', label: 'Closed' },
-];
 
 export default function AddTripScreen() {
   const addTrip = useTripStore((s) => s.addTrip);
@@ -33,7 +28,6 @@ export default function AddTripScreen() {
   const [startDate, setStartDate]     = useState(todayISO);
   const [endDate, setEndDate]         = useState(todayISO);
   const [notes, setNotes]             = useState('');
-  const [status, setStatus]           = useState<TripStatus>('open');
   const [saving, setSaving]           = useState(false);
 
   const isValid =
@@ -53,7 +47,7 @@ export default function AddTripScreen() {
         startDate: startDate.trim(),
         endDate: endDate.trim(),
         notes: notes.trim() || undefined,
-        status,
+        status: 'open',
       });
       router.back();
     } catch (e) {
@@ -102,45 +96,18 @@ export default function AddTripScreen() {
         />
 
         <View style={styles.row}>
-          <View style={styles.flex}>
-            <Text style={styles.label}>Start Date *</Text>
-            <TextInput
-              style={styles.input}
-              value={startDate}
-              onChangeText={setStartDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor="#aaa"
-              keyboardType="numbers-and-punctuation"
-              returnKeyType="next"
-            />
-          </View>
-          <View style={styles.flex}>
-            <Text style={styles.label}>End Date *</Text>
-            <TextInput
-              style={styles.input}
-              value={endDate}
-              onChangeText={setEndDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor="#aaa"
-              keyboardType="numbers-and-punctuation"
-              returnKeyType="next"
-            />
-          </View>
-        </View>
-
-        <Text style={styles.label}>Status</Text>
-        <View style={styles.chipRow}>
-          {STATUS_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.value}
-              style={[styles.chip, status === opt.value && styles.chipActive]}
-              onPress={() => setStatus(opt.value)}
-            >
-              <Text style={[styles.chipText, status === opt.value && styles.chipTextActive]}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          ))}
+          <DateField
+            label="Start Date *"
+            value={startDate}
+            onChange={setStartDate}
+            containerStyle={styles.flex}
+          />
+          <DateField
+            label="End Date *"
+            value={endDate}
+            onChange={setEndDate}
+            containerStyle={styles.flex}
+          />
         </View>
 
         <Text style={styles.label}>Notes (optional)</Text>
@@ -203,30 +170,6 @@ const styles = StyleSheet.create({
   notesInput: {
     height: 88,
     paddingTop: 10,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#fafafa',
-  },
-  chipActive: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
-  },
-  chipText: {
-    fontSize: 14,
-    color: '#555',
-  },
-  chipTextActive: {
-    color: '#fff',
-    fontWeight: '600',
   },
   saveButton: {
     marginTop: 32,

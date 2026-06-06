@@ -2,10 +2,10 @@ import { router, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/' },
-  { label: 'Expenses',  href: '/expenses' },
-  { label: 'Trips',     href: '/trips' },
-  { label: 'Batches',   href: '/batches' },
+  { label: 'Dashboard',  href: '/' },
+  { label: 'Expenses',   href: '/expenses' },
+  { label: 'Trips',      href: '/trips' },
+  { label: 'Import CSV', href: '/import-csv' },
 ] as const;
 
 const BOTTOM_ITEMS = [
@@ -26,6 +26,14 @@ export function Sidebar() {
   return (
     <View style={styles.sidebar}>
       <Text style={styles.brand}>Reimbursement</Text>
+
+      <Pressable
+        style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
+        onPress={() => router.push('/add-expense')}
+      >
+        <Text style={styles.addBtnText}>+ Add Expense</Text>
+      </Pressable>
+
       {NAV_ITEMS.map(({ label, href }) => {
         const active = isActive(href);
         return (
@@ -38,7 +46,9 @@ export function Sidebar() {
           </Pressable>
         );
       })}
+
       <View style={styles.spacer} />
+
       {BOTTOM_ITEMS.map(({ label, href }) => {
         const active = isActive(href);
         return (
@@ -73,7 +83,23 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  addBtn: {
+    backgroundColor: '#2563EB',
+    borderRadius: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
     marginBottom: 20,
+    alignItems: 'center',
+  },
+  addBtnPressed: {
+    backgroundColor: '#1D4ED8',
+  },
+  addBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
   },
   item: {
     borderRadius: 8,
