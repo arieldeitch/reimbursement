@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useMemo } from 'react';
 import {
   Pressable,
@@ -66,9 +66,15 @@ export default function DashboardScreen() {
           {STATUS_CARDS.map(({ key, label, accent, bg }) => {
             const s = stats[key];
             return (
-              <View
+              <Pressable
                 key={key}
-                style={[styles.card, { backgroundColor: bg, borderLeftColor: accent }, isVeryWide && styles.cardFourCol]}
+                style={({ pressed }) => [
+                  styles.card,
+                  { backgroundColor: bg, borderLeftColor: accent },
+                  isVeryWide && styles.cardFourCol,
+                  pressed && styles.cardPressed,
+                ]}
+                onPress={() => router.push(`/expenses?status=${key}`)}
               >
                 <Text style={[styles.cardLabel, { color: accent }]}>{label}</Text>
                 {Object.keys(s.byCurrency).length === 0 ? (
@@ -85,7 +91,7 @@ export default function DashboardScreen() {
                 <Text style={styles.cardCount}>
                   {s.count} expense{s.count !== 1 ? 's' : ''}
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -180,6 +186,9 @@ const styles = StyleSheet.create({
   },
   cardFourCol: {
     flexBasis: '22%',
+  },
+  cardPressed: {
+    opacity: 0.85,
   },
   cardLabel: {
     fontSize: 11,

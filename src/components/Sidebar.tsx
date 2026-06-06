@@ -1,0 +1,74 @@
+import { router, usePathname } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+const NAV_ITEMS = [
+  { label: 'Dashboard', href: '/' },
+  { label: 'Expenses',  href: '/expenses' },
+  { label: 'Trips',     href: '/trips' },
+  { label: 'Batches',   href: '/batches' },
+] as const;
+
+type NavHref = (typeof NAV_ITEMS)[number]['href'];
+
+export function Sidebar() {
+  const pathname = usePathname();
+
+  function isActive(href: NavHref): boolean {
+    if (href === '/') return pathname === '/';
+    return pathname === href || pathname.startsWith(href + '/');
+  }
+
+  return (
+    <View style={styles.sidebar}>
+      <Text style={styles.brand}>Reimbursement</Text>
+      {NAV_ITEMS.map(({ label, href }) => {
+        const active = isActive(href);
+        return (
+          <Pressable
+            key={href}
+            style={[styles.item, active && styles.itemActive]}
+            onPress={() => router.push(href)}
+          >
+            <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  sidebar: {
+    width: 220,
+    backgroundColor: '#1E293B',
+    paddingTop: 40,
+    paddingHorizontal: 12,
+  },
+  brand: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  item: {
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 2,
+  },
+  itemActive: {
+    backgroundColor: '#2563EB',
+  },
+  label: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#CBD5E1',
+  },
+  labelActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+});
