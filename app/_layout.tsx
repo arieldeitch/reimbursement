@@ -56,7 +56,9 @@ export default function RootLayout() {
           <Stack.Screen name="edit-trip"    options={{ title: 'Edit Trip' }} />
           <Stack.Screen name="add-batch"    options={{ title: 'New Batch',   presentation: 'modal' }} />
           <Stack.Screen name="batch/[id]"   options={{ title: 'Batch' }} />
-          <Stack.Screen name="edit-batch"   options={{ title: 'Edit Batch' }} />
+          <Stack.Screen name="edit-batch"        options={{ title: 'Edit Batch' }} />
+          <Stack.Screen name="trip-report/[id]"  options={{ title: 'Trip Report' }} />
+          <Stack.Screen name="batch-report/[id]" options={{ title: 'Batch Report' }} />
         </Stack>
       </View>
     </View>

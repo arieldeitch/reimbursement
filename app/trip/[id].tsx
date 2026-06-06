@@ -226,6 +226,13 @@ export default function TripDetailScreen() {
           </Text>
         </Pressable>
 
+        <Pressable
+          style={[styles.button, styles.outlineButton]}
+          onPress={() => router.push({ pathname: '/trip-report/[id]', params: { id: trip.id } })}
+        >
+          <Text style={[styles.buttonText, styles.outlineButtonText]}>View Report</Text>
+        </Pressable>
+
         <View style={styles.actions}>
           <Pressable style={[styles.button, styles.outlineButton]} onPress={handleEdit}>
             <Text style={[styles.buttonText, styles.outlineButtonText]}>Edit</Text>

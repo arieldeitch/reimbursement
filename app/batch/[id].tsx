@@ -18,6 +18,7 @@ import { useExpenseStore } from '@/store/expenseSlice';
 import { batchReadiness, totalsByCurrency } from '@/store/selectors';
 import { useTripStore } from '@/store/tripSlice';
 import type { BatchStatus, ReimbursementBatch } from '@/types/batch';
+import { exportBatchCsv } from '@/utils/batchExport';
 
 const BATCH_STATUS_OPTIONS: { value: BatchStatus; label: string }[] = [
   { value: 'draft',     label: 'Draft'     },
@@ -60,8 +61,9 @@ export default function BatchDetailScreen() {
   const [notFound, setNotFound] = useState(false);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [changingStatus, setChangingStatus]     = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [showAdd, setShowAdd]   = useState(false);
+  const [deleting, setDeleting]   = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showAdd, setShowAdd]     = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -134,6 +136,19 @@ export default function BatchDetailScreen() {
     } catch (e) {
       console.error(e);
       Alert.alert('Error', 'Failed to remove expense. Please try again.');
+    }
+  };
+
+  const handleExport = async () => {
+    if (!batch) return;
+    setExporting(true);
+    try {
+      await exportBatchCsv(batch, batchExpenses, trips);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Export Failed', 'Could not generate the CSV file. Please try again.');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -237,6 +252,24 @@ export default function BatchDetailScreen() {
           <View style={styles.divider} />
         </>
       )}
+
+      <View style={styles.exportRow}>
+        <Pressable
+          style={[styles.button, styles.exportButton, exporting && styles.exportButtonBusy]}
+          onPress={handleExport}
+          disabled={exporting}
+        >
+          <Text style={[styles.buttonText, styles.exportButtonText]}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.button, styles.outlineButton]}
+          onPress={() => router.push({ pathname: '/batch-report/[id]', params: { id: batch.id } })}
+        >
+          <Text style={[styles.buttonText, styles.outlineButtonText]}>View Report</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.primaryActions}>
         <Pressable
@@ -622,6 +655,20 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     fontSize: 13,
     fontWeight: '600',
+  },
+  exportRow: {
+    gap: 10,
+    marginBottom: 10,
+  },
+  exportButton: {
+    backgroundColor: '#059669',
+    borderWidth: 0,
+  },
+  exportButtonBusy: {
+    backgroundColor: '#6EE7B7',
+  },
+  exportButtonText: {
+    color: '#fff',
   },
   primaryActions: {
     flexDirection: 'row',
