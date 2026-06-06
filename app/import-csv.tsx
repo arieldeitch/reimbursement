@@ -17,85 +17,18 @@ import { useExpenseStore } from '@/store/expenseSlice';
 import { useTripStore } from '@/store/tripSlice';
 import { PAYMENT_METHODS } from '@/types/expense';
 import type { Expense, ExpenseCategory, PaymentMethod } from '@/types/expense';
-
-// ─── CSV Parser ───────────────────────────────────────────────────────────────
-
-function parseCSV(text: string): string[][] {
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  return lines
-    .map((line) => {
-      const fields: string[] = [];
-      let field = '';
-      let inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-          if (inQuotes && line[i + 1] === '"') { field += '"'; i++; }
-          else { inQuotes = !inQuotes; }
-        } else if (ch === ',' && !inQuotes) {
-          fields.push(field.trim()); field = '';
-        } else {
-          field += ch;
-        }
-      }
-      fields.push(field.trim());
-      return fields;
-    })
-    .filter((row) => row.some((cell) => cell !== ''));
-}
-
-const COL_ALIASES: Record<string, string[]> = {
-  date:     ['date', 'transaction date', 'trans date', 'posting date', 'value date', 'תאריך'],
-  title:    ['title', 'description', 'desc', 'memo', 'narrative', 'payee', 'name', 'merchant', 'details', 'תיאור'],
-  amount:   ['amount', 'debit', 'credit', 'charge', 'sum', 'total', 'value', 'סכום'],
-  currency: ['currency', 'ccy', 'curr', 'מטבע'],
-  category: ['category', 'type', 'tag', 'קטגוריה'],
-  notes:    ['notes', 'note', 'comment', 'reference', 'ref', 'הערות'],
-};
-
-function detectColumns(headers: string[]): Record<string, number> {
-  const result: Record<string, number> = {};
-  const norm = headers.map((h) => h.toLowerCase().trim());
-  for (const [field, aliases] of Object.entries(COL_ALIASES)) {
-    const idx = norm.findIndex((h) => aliases.includes(h));
-    if (idx !== -1) result[field] = idx;
-  }
-  return result;
-}
-
-function parseDate(s: string): string | null {
-  const clean = s.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-  const m1 = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m1) return `${m1[3]}-${m1[1].padStart(2, '0')}-${m1[2].padStart(2, '0')}`;
-  const m2 = clean.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (m2) return `${m2[3]}-${m2[2].padStart(2, '0')}-${m2[1].padStart(2, '0')}`;
-  return null;
-}
-
-function parseAmount(s: string): number | null {
-  const cleaned = s.replace(/[$€£¥₪,\s]/g, '').replace(/\((.+)\)/, '-$1');
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? null : Math.abs(n);
-}
+import {
+  parseImportFile,
+  type ParseDiagnostics,
+  type ParsedRow,
+  type ParseFallback,
+} from '@/utils/csvParser';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ParsedRow {
-  raw: string[];
-  date: string | null;
-  title: string | null;
-  amount: number | null;
-  currency: string;
-  category: ExpenseCategory;
-  notes: string;
-  isValid: boolean;
-  error: string;
-}
+type Step = 'upload' | 'preview' | 'fallback';
 
-type Step = 'upload' | 'preview';
-
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// ─── Duplicate detection ──────────────────────────────────────────────────────
 
 function isDuplicateOf(row: ParsedRow, existing: Expense[]): boolean {
   if (!row.date || !row.title || row.amount === null) return false;
@@ -108,6 +41,8 @@ function isDuplicateOf(row: ParsedRow, existing: Expense[]): boolean {
   );
 }
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function ImportCSVScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
@@ -119,19 +54,27 @@ export default function ImportCSVScreen() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [step, setStep]           = useState<Step>('upload');
-  const [fileName, setFileName]   = useState('');
-  const [headers, setHeaders]     = useState<string[]>([]);
-  const [colMap, setColMap]       = useState<Record<string, number>>({});
-  const [rows, setRows]           = useState<ParsedRow[]>([]);
-  const [selectedTripId, setSelectedTripId] = useState<string | undefined>();
-  const [paymentMethod, setPaymentMethod]   = useState<PaymentMethod>('personal_card');
-  const [currencyOverride, setCurrencyOverride] = useState('');
-  const [importing, setImporting] = useState(false);
+  const [step, setStep]               = useState<Step>('upload');
+  const [fileName, setFileName]       = useState('');
+  const [headers, setHeaders]         = useState<string[]>([]);
+  const [colMap, setColMap]           = useState<Record<string, number>>({});
+  const [rows, setRows]               = useState<ParsedRow[]>([]);
+  const [diagnostics, setDiagnostics] = useState<ParseDiagnostics | null>(null);
+  const [sheetNames, setSheetNames]   = useState<string[]>([]);
+  const [selectedTripId, setSelectedTripId]       = useState<string | undefined>();
+  const [paymentMethod, setPaymentMethod]         = useState<PaymentMethod>('personal_card');
+  const [currencyOverride, setCurrencyOverride]   = useState('');
+  const [importing, setImporting]     = useState(false);
+
+  // Fallback state
+  const [fallbackInfo, setFallbackInfo] = useState<ParseFallback | null>(null);
+  const [fbSheetIdx, setFbSheetIdx]     = useState(0);
+  const [fbHeaderRow, setFbHeaderRow]   = useState('');
+  const [lastBuffer, setLastBuffer]     = useState<ArrayBuffer | null>(null);
+  const [lastFileName, setLastFileName] = useState('');
 
   const validRows   = rows.filter((r) => r.isValid);
   const invalidRows = rows.filter((r) => !r.isValid);
-
   const missingCurrency = rows.length > 0 && colMap.currency === undefined;
 
   const duplicateIndices = useMemo<Set<number>>(() => {
@@ -142,61 +85,30 @@ export default function ImportCSVScreen() {
     return set;
   }, [rows, expenses]);
 
-  function processFileText(text: string, name: string) {
-    const parsed = parseCSV(text);
-    if (parsed.length < 2) {
-      Alert.alert('Error', 'The CSV file appears to be empty or invalid.');
+  function applyParseResult(result: ReturnType<typeof parseImportFile>, name: string) {
+    if (!result.ok) {
+      setFallbackInfo(result);
+      setSheetNames(result.sheetNames);
+      setFbSheetIdx(0);
+      setFbHeaderRow('');
+      setFileName(name);
+      setStep('fallback');
       return;
     }
-
-    const hdrs = parsed[0];
-    const data = parsed.slice(1);
-    const map  = detectColumns(hdrs);
-
-    const parsedRows: ParsedRow[] = data.map((raw) => {
-      const dateStr   = map.date   !== undefined ? raw[map.date]   ?? '' : '';
-      const titleStr  = map.title  !== undefined ? raw[map.title]  ?? '' : '';
-      const amountStr = map.amount !== undefined ? raw[map.amount] ?? '' : '';
-      const currStr   = map.currency !== undefined ? raw[map.currency] ?? 'USD' : 'USD';
-      const catStr    = map.category !== undefined ? raw[map.category] ?? '' : '';
-      const notesStr  = map.notes  !== undefined ? raw[map.notes]  ?? '' : '';
-
-      const date   = parseDate(dateStr);
-      const title  = titleStr.trim() || null;
-      const amount = parseAmount(amountStr);
-
-      const knownCategories: ExpenseCategory[] = [
-        'transportation', 'food', 'hotel', 'parking', 'taxi', 'flight', 'equipment', 'other',
-      ];
-      const catNorm = catStr.toLowerCase().trim();
-      const category: ExpenseCategory =
-        knownCategories.find((c) => c === catNorm) ?? 'other';
-
-      const currency = (currStr.trim().toUpperCase() || 'USD').slice(0, 3);
-
-      let error = '';
-      if (!date) error += 'Invalid date. ';
-      if (!title) error += 'Missing title. ';
-      if (amount === null) error += 'Invalid amount. ';
-
-      return {
-        raw,
-        date,
-        title,
-        amount,
-        currency,
-        category,
-        notes: notesStr.trim(),
-        isValid: !error,
-        error: error.trim(),
-      };
-    });
-
+    setHeaders(result.headers);
+    setColMap(result.colMap);
+    setRows(result.rows);
+    setDiagnostics(result.diagnostics);
+    setSheetNames(result.sheetNames);
     setFileName(name);
-    setHeaders(hdrs);
-    setColMap(map);
-    setRows(parsedRows);
     setStep('preview');
+  }
+
+  async function processFileBuffer(buffer: ArrayBuffer, name: string) {
+    setLastBuffer(buffer);
+    setLastFileName(name);
+    const result = parseImportFile(buffer, name);
+    applyParseResult(result, name);
   }
 
   function handlePickFile() {
@@ -211,10 +123,20 @@ export default function ImportCSVScreen() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target?.result;
-      if (typeof text === 'string') processFileText(text, file.name);
+      const buf = evt.target?.result;
+      if (buf instanceof ArrayBuffer) processFileBuffer(buf, file.name);
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleFallbackRetry() {
+    if (!lastBuffer) return;
+    const headerRow = parseInt(fbHeaderRow, 10);
+    const result = parseImportFile(lastBuffer, lastFileName, {
+      sheetIndex: fbSheetIdx,
+      headerRowOverride: isNaN(headerRow) ? undefined : headerRow - 1,
+    });
+    applyParseResult(result, lastFileName);
   }
 
   async function handleImport() {
@@ -253,7 +175,7 @@ export default function ImportCSVScreen() {
     Platform.OS === 'web'
       ? React.createElement('input', {
           type: 'file',
-          accept: '.csv,text/csv,text/plain',
+          accept: '.csv,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           ref: fileInputRef,
           style: { display: 'none' },
           onChange: handleFileChange,
@@ -268,11 +190,9 @@ export default function ImportCSVScreen() {
       <View style={[styles.container, isWide && styles.containerWide]}>
         {hiddenFileInput}
 
-        {step === 'upload' && (
-          <UploadStep onPickFile={handlePickFile} />
-        )}
+        {step === 'upload' && <UploadStep onPickFile={handlePickFile} />}
 
-        {step === 'preview' && (
+        {step === 'preview' && diagnostics && (
           <PreviewStep
             fileName={fileName}
             headers={headers}
@@ -286,12 +206,27 @@ export default function ImportCSVScreen() {
             onCurrencyOverride={setCurrencyOverride}
             paymentMethod={paymentMethod}
             onPaymentMethod={setPaymentMethod}
+            diagnostics={diagnostics}
             openTrips={openTrips}
             selectedTripId={selectedTripId}
             onSelectTrip={setSelectedTripId}
             onImport={handleImport}
             onBack={() => setStep('upload')}
             importing={importing}
+          />
+        )}
+
+        {step === 'fallback' && (
+          <FallbackStep
+            fileName={fileName}
+            fallbackInfo={fallbackInfo}
+            sheetNames={sheetNames}
+            fbSheetIdx={fbSheetIdx}
+            onSheetIdx={setFbSheetIdx}
+            fbHeaderRow={fbHeaderRow}
+            onHeaderRow={setFbHeaderRow}
+            onRetry={handleFallbackRetry}
+            onBack={() => setStep('upload')}
           />
         )}
       </View>
@@ -304,20 +239,21 @@ export default function ImportCSVScreen() {
 function UploadStep({ onPickFile }: { onPickFile: () => void }) {
   return (
     <View>
-      <Text style={styles.heading}>Import CSV</Text>
+      <Text style={styles.heading}>Import CSV / XLSX</Text>
       <Text style={styles.subheading}>
-        Import expenses from a CSV file exported by your bank, credit card, or accounting tool.
+        Import expenses from a CSV or Excel file exported from your bank or credit card.
+        Hebrew bank exports (Bank Hapoalim, Cal, Discount) are supported automatically.
       </Text>
 
       <View style={styles.formatBox}>
-        <Text style={styles.formatTitle}>Expected columns (auto-detected):</Text>
+        <Text style={styles.formatTitle}>Auto-detected columns:</Text>
         {[
-          ['Date', 'date, transaction date, posting date'],
-          ['Title', 'title, description, memo, payee, merchant'],
-          ['Amount', 'amount, debit, credit, charge'],
-          ['Currency', 'currency, ccy  (optional, defaults to USD)'],
-          ['Category', 'category, type  (optional)'],
-          ['Notes', 'notes, note, memo  (optional)'],
+          ['Date', 'תאריך עסקה / date / transaction date'],
+          ['Title', 'שם בית עסק / description / merchant / payee'],
+          ['Amount', 'סכום עסקה / סכום חיוב / amount / charge / debit'],
+          ['Currency', 'מטבע / currency  (optional, embedded in amount if absent)'],
+          ['Category', 'קטגוריה / ענף / category  (optional)'],
+          ['Notes', 'הערות / notes / memo  (optional)'],
         ].map(([field, aliases]) => (
           <View key={field} style={styles.formatRow}>
             <Text style={styles.formatField}>{field}</Text>
@@ -337,9 +273,133 @@ function UploadStep({ onPickFile }: { onPickFile: () => void }) {
           style={({ pressed }) => [styles.uploadBtn, pressed && styles.uploadBtnPressed]}
           onPress={onPickFile}
         >
-          <Text style={styles.uploadBtnText}>Choose CSV File</Text>
+          <Text style={styles.uploadBtnText}>Choose CSV / XLSX File</Text>
         </Pressable>
       )}
+    </View>
+  );
+}
+
+// ─── Fallback Step ────────────────────────────────────────────────────────────
+
+interface FallbackProps {
+  fileName: string;
+  fallbackInfo: ParseFallback | null;
+  sheetNames: string[];
+  fbSheetIdx: number;
+  onSheetIdx: (i: number) => void;
+  fbHeaderRow: string;
+  onHeaderRow: (s: string) => void;
+  onRetry: () => void;
+  onBack: () => void;
+}
+
+function FallbackStep({
+  fileName,
+  fallbackInfo,
+  sheetNames,
+  fbSheetIdx,
+  onSheetIdx,
+  fbHeaderRow,
+  onHeaderRow,
+  onRetry,
+  onBack,
+}: FallbackProps) {
+  const preview = fallbackInfo?.sheetPreviews?.[fbSheetIdx]?.rows ?? [];
+
+  return (
+    <View>
+      <Text style={styles.heading}>Manual Setup Required</Text>
+
+      <View style={styles.fallbackBanner}>
+        <Text style={styles.fallbackBannerText}>
+          ⚠ {fallbackInfo?.reason ?? 'We could not automatically detect the transaction table.'}
+        </Text>
+      </View>
+
+      <Text style={styles.subheading}>{fileName}</Text>
+
+      {sheetNames.length > 1 && (
+        <>
+          <Text style={styles.sectionLabel}>Worksheet</Text>
+          {Platform.OS === 'web' ? (
+            React.createElement(
+              'select',
+              {
+                value: fbSheetIdx,
+                onChange: (e: any) => onSheetIdx(parseInt(e.target.value, 10)),
+                style: {
+                  width: '100%', padding: '10px 12px', fontSize: 15,
+                  borderRadius: 8, border: '1px solid #D1D5DB',
+                  backgroundColor: '#fafafa', color: '#111827',
+                  fontFamily: 'inherit', marginBottom: 0,
+                } as React.CSSProperties,
+              },
+              ...sheetNames.map((name, i) =>
+                React.createElement('option', { key: i, value: i }, name),
+              ),
+            )
+          ) : (
+            <ScrollView horizontal style={styles.chips}>
+              {sheetNames.map((name, i) => (
+                <Pressable
+                  key={i}
+                  style={[styles.chip, fbSheetIdx === i && styles.chipActive]}
+                  onPress={() => onSheetIdx(i)}
+                >
+                  <Text style={[styles.chipText, fbSheetIdx === i && styles.chipTextActive]}>
+                    {name}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </>
+      )}
+
+      <Text style={styles.sectionLabel}>Header Row Number</Text>
+      <Text style={styles.fallbackHint}>
+        Look at the preview below. Enter the row number that contains column headers.
+      </Text>
+      <TextInput
+        style={[styles.currencyInput, { width: 80 }]}
+        value={fbHeaderRow}
+        onChangeText={onHeaderRow}
+        placeholder="e.g. 4"
+        placeholderTextColor="#aaa"
+        keyboardType="number-pad"
+      />
+
+      {preview.length > 0 && (
+        <>
+          <Text style={styles.sectionLabel}>File Preview (first {preview.length} rows)</Text>
+          <ScrollView horizontal>
+            <View>
+              {preview.map((row, ri) => (
+                <View key={ri} style={[styles.fbPreviewRow, ri % 2 === 1 && styles.fbPreviewRowAlt]}>
+                  <Text style={styles.fbRowNum}>{ri + 1}</Text>
+                  {row.slice(0, 6).map((cell, ci) => (
+                    <Text key={ci} style={styles.fbCell} numberOfLines={1}>{cell || '—'}</Text>
+                  ))}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </>
+      )}
+
+      <View style={styles.bottomActions}>
+        <Pressable style={styles.backBtn} onPress={onBack}>
+          <Text style={styles.backBtnText}>← Back</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.importBtn, !fbHeaderRow.trim() && styles.importBtnDisabled]}
+          onPress={onRetry}
+          disabled={!fbHeaderRow.trim()}
+        >
+          <Text style={styles.importBtnText}>Try These Settings</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -359,6 +419,7 @@ interface PreviewProps {
   onCurrencyOverride: (v: string) => void;
   paymentMethod: PaymentMethod;
   onPaymentMethod: (v: PaymentMethod) => void;
+  diagnostics: ParseDiagnostics;
   openTrips: { id: string; name: string }[];
   selectedTripId: string | undefined;
   onSelectTrip: (id: string | undefined) => void;
@@ -369,8 +430,6 @@ interface PreviewProps {
 
 function PreviewStep({
   fileName,
-  headers,
-  colMap,
   rows,
   validRows,
   invalidRows,
@@ -380,6 +439,7 @@ function PreviewStep({
   onCurrencyOverride,
   paymentMethod,
   onPaymentMethod,
+  diagnostics,
   openTrips,
   selectedTripId,
   onSelectTrip,
@@ -399,6 +459,7 @@ function PreviewStep({
         <Text style={styles.fileName}>{fileName}</Text>
       </View>
 
+      {/* Stats */}
       <View style={styles.statsRow}>
         <View style={[styles.statBadge, styles.statBadgeTotal]}>
           <Text style={styles.statBadgeText}>{rows.length} total rows</Text>
@@ -418,35 +479,36 @@ function PreviewStep({
         )}
       </View>
 
-      {duplicateCount > 0 && (
-        <View style={styles.duplicateBanner}>
-          <Text style={styles.duplicateBannerText}>
-            ⚠ {duplicateCount} row{duplicateCount !== 1 ? 's' : ''} may already exist (same date, title, and amount). They will still be imported — review before confirming.
+      {/* Diagnostics panel */}
+      <Text style={styles.sectionLabel}>Import Diagnostics</Text>
+      <View style={styles.diagnosticsBox}>
+        {diagnostics.sheetName !== 'Sheet1' && (
+          <DiagRow label="Detected sheet" value={diagnostics.sheetName} />
+        )}
+        <DiagRow label="Detected header row" value={String(diagnostics.headerRowIndex)} />
+        {Object.entries(diagnostics.columns).map(([field, col]) => (
+          <DiagRow key={field} label={`${field.charAt(0).toUpperCase() + field.slice(1)} column`} value={`"${col}"`} />
+        ))}
+        <DiagRow label="Valid rows" value={String(diagnostics.rowCount)} />
+        {diagnostics.encodingNote !== 'XLSX' && (
+          <DiagRow label="Encoding" value={diagnostics.encodingNote} />
+        )}
+      </View>
+
+      {/* Required columns warning */}
+      {(diagnostics.columns.date === undefined || diagnostics.columns.title === undefined || diagnostics.columns.amount === undefined) && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>
+            ⚠ Required columns (date, title, amount) could not be detected. Check the diagnostics above.
           </Text>
         </View>
       )}
 
-      {/* Detected columns */}
-      <Text style={styles.sectionLabel}>Detected Mapping</Text>
-      <View style={styles.mappingBox}>
-        {Object.keys(COL_ALIASES).map((field) => {
-          const colIdx = colMap[field];
-          const found  = colIdx !== undefined;
-          return (
-            <View key={field} style={styles.mappingRow}>
-              <Text style={styles.mappingField}>{field.charAt(0).toUpperCase() + field.slice(1)}</Text>
-              <Text style={[styles.mappingValue, !found && styles.mappingValueMissing]}>
-                {found ? `"${headers[colIdx]}"` : '— not found'}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-
-      {(colMap.date === undefined || colMap.title === undefined || colMap.amount === undefined) && (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>
-            ⚠ Required columns (date, title, amount) could not be detected. Please check your CSV headers.
+      {/* Duplicate warning */}
+      {duplicateCount > 0 && (
+        <View style={styles.duplicateBanner}>
+          <Text style={styles.duplicateBannerText}>
+            ⚠ {duplicateCount} row{duplicateCount !== 1 ? 's' : ''} may already exist (same date, title, and amount). They will still be imported — review before confirming.
           </Text>
         </View>
       )}
@@ -466,17 +528,10 @@ function PreviewStep({
             value: selectedTripId ?? '',
             onChange: (e: any) => onSelectTrip(e.target.value || undefined),
             style: {
-              width: '100%',
-              padding: '10px 12px',
-              fontSize: 15,
-              borderRadius: 8,
-              border: '1px solid #D1D5DB',
-              backgroundColor: '#fafafa',
-              color: '#111827',
-              fontFamily: 'inherit',
-              outline: 'none',
-              cursor: 'pointer',
-              marginBottom: 0,
+              width: '100%', padding: '10px 12px', fontSize: 15,
+              borderRadius: 8, border: '1px solid #D1D5DB',
+              backgroundColor: '#fafafa', color: '#111827',
+              fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
             } as React.CSSProperties,
           },
           React.createElement('option', { value: '' }, 'None — unassigned'),
@@ -486,10 +541,7 @@ function PreviewStep({
         )
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
-          <Pressable
-            style={[styles.chip, !selectedTripId && styles.chipActive]}
-            onPress={() => onSelectTrip(undefined)}
-          >
+          <Pressable style={[styles.chip, !selectedTripId && styles.chipActive]} onPress={() => onSelectTrip(undefined)}>
             <Text style={[styles.chipText, !selectedTripId && styles.chipTextActive]}>None</Text>
           </Pressable>
           {openTrips.map((trip) => (
@@ -498,10 +550,7 @@ function PreviewStep({
               style={[styles.chip, selectedTripId === trip.id && styles.chipActive]}
               onPress={() => onSelectTrip(trip.id)}
             >
-              <Text
-                style={[styles.chipText, selectedTripId === trip.id && styles.chipTextActive]}
-                numberOfLines={1}
-              >
+              <Text style={[styles.chipText, selectedTripId === trip.id && styles.chipTextActive]} numberOfLines={1}>
                 {trip.name}
               </Text>
             </Pressable>
@@ -585,12 +634,8 @@ function PreviewStep({
         <Pressable style={styles.backBtn} onPress={onBack}>
           <Text style={styles.backBtnText}>← Back</Text>
         </Pressable>
-
         <Pressable
-          style={[
-            styles.importBtn,
-            (validRows.length === 0 || importing) && styles.importBtnDisabled,
-          ]}
+          style={[styles.importBtn, (validRows.length === 0 || importing) && styles.importBtnDisabled]}
           onPress={onImport}
           disabled={validRows.length === 0 || importing}
         >
@@ -607,336 +652,153 @@ function PreviewStep({
   );
 }
 
+// ─── Diagnostics row ──────────────────────────────────────────────────────────
+
+function DiagRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.diagRow}>
+      <Text style={styles.diagLabel}>{label}:</Text>
+      <Text style={styles.diagValue}>{value}</Text>
+    </View>
+  );
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const ACCENT = '#2563EB';
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  scrollContentWide: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 32,
-  },
-  container: {
-    width: '100%',
-  },
-  containerWide: {
-    maxWidth: 720,
-  },
-  heading: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  subheading: {
-    fontSize: 15,
-    color: '#6B7280',
-    marginBottom: 24,
-    lineHeight: 22,
-  },
+  scroll: { flex: 1, backgroundColor: '#F8FAFC' },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  scrollContentWide: { alignItems: 'center', paddingHorizontal: 32, paddingVertical: 32 },
+  container: { width: '100%' },
+  containerWide: { maxWidth: 720 },
+
+  heading: { fontSize: 26, fontWeight: '800', color: '#111827', marginBottom: 8 },
+  subheading: { fontSize: 15, color: '#6B7280', marginBottom: 24, lineHeight: 22 },
+
   formatBox: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 28,
+    backgroundColor: '#fff', borderRadius: 10, padding: 16,
+    borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 28,
   },
-  formatTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#374151',
-    marginBottom: 12,
-  },
-  formatRow: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  formatField: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: ACCENT,
-    width: 80,
-  },
-  formatAliases: {
-    fontSize: 13,
-    color: '#6B7280',
-    flex: 1,
-  },
+  formatTitle: { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 12 },
+  formatRow: { flexDirection: 'row', marginBottom: 6 },
+  formatField: { fontSize: 13, fontWeight: '600', color: ACCENT, width: 80 },
+  formatAliases: { fontSize: 13, color: '#6B7280', flex: 1 },
+
   notAvailable: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 10,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED', borderRadius: 10, padding: 20,
+    borderWidth: 1, borderColor: '#FED7AA',
   },
-  notAvailableText: {
-    fontSize: 14,
-    color: '#92400E',
-    textAlign: 'center',
+  notAvailableText: { fontSize: 14, color: '#92400E', textAlign: 'center' },
+
+  uploadBtn: { backgroundColor: ACCENT, borderRadius: 10, paddingVertical: 16, alignItems: 'center' },
+  uploadBtnPressed: { backgroundColor: '#1D4ED8' },
+  uploadBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Fallback
+  fallbackBanner: {
+    backgroundColor: '#FFFBEB', borderRadius: 8, padding: 14,
+    borderWidth: 1, borderColor: '#FDE68A', marginBottom: 20,
   },
-  uploadBtn: {
-    backgroundColor: ACCENT,
-    borderRadius: 10,
-    paddingVertical: 16,
-    alignItems: 'center',
+  fallbackBannerText: { fontSize: 14, color: '#92400E', fontWeight: '600', lineHeight: 20 },
+  fallbackHint: { fontSize: 13, color: '#6B7280', marginBottom: 8 },
+  fbPreviewRow: { flexDirection: 'row', paddingVertical: 4 },
+  fbPreviewRowAlt: { backgroundColor: '#F9FAFB' },
+  fbRowNum: { width: 28, fontSize: 11, color: '#9CA3AF', fontWeight: '700' },
+  fbCell: { width: 120, fontSize: 12, color: '#374151', paddingHorizontal: 4 },
+
+  // Diagnostics
+  diagnosticsBox: {
+    backgroundColor: '#F0F9FF', borderRadius: 8, padding: 12,
+    borderWidth: 1, borderColor: '#BAE6FD',
   },
-  uploadBtnPressed: {
-    backgroundColor: '#1D4ED8',
-  },
-  uploadBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  fileNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 6,
-  },
-  fileNameLabel: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    fontWeight: '600',
-  },
-  fileName: {
-    fontSize: 13,
-    color: '#374151',
-    fontWeight: '600',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-  },
-  statBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  statBadgeTotal: {
-    backgroundColor: '#F3F4F6',
-  },
-  statBadgeValid: {
-    backgroundColor: '#ECFDF5',
-  },
-  statBadgeInvalid: {
-    backgroundColor: '#FEF2F2',
-  },
-  statBadgeDuplicate: {
-    backgroundColor: '#FFFBEB',
-  },
-  statBadgeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-  },
+  diagRow: { flexDirection: 'row', paddingVertical: 3, flexWrap: 'wrap' },
+  diagLabel: { fontSize: 12, color: '#0369A1', fontWeight: '600', width: 180 },
+  diagValue: { fontSize: 12, color: '#0C4A6E', flex: 1 },
+
+  fileNameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 6 },
+  fileNameLabel: { fontSize: 13, color: '#9CA3AF', fontWeight: '600' },
+  fileName: { fontSize: 13, color: '#374151', fontWeight: '600' },
+
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 20, flexWrap: 'wrap' },
+  statBadge: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 },
+  statBadgeTotal: { backgroundColor: '#F3F4F6' },
+  statBadgeValid: { backgroundColor: '#ECFDF5' },
+  statBadgeInvalid: { backgroundColor: '#FEF2F2' },
+  statBadgeDuplicate: { backgroundColor: '#FFFBEB' },
+  statBadgeText: { fontSize: 13, fontWeight: '600', color: '#374151' },
+
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginTop: 20,
+    fontSize: 11, fontWeight: '700', color: '#9CA3AF',
+    textTransform: 'uppercase', letterSpacing: 0.8,
+    marginBottom: 10, marginTop: 20,
   },
-  mappingBox: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  mappingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#F3F4F6',
-  },
-  mappingField: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-    width: 80,
-  },
-  mappingValue: {
-    fontSize: 13,
-    color: '#059669',
-    fontWeight: '500',
-  },
-  mappingValueMissing: {
-    color: '#9CA3AF',
-  },
+
   errorBanner: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    marginTop: 12,
+    backgroundColor: '#FEF2F2', borderRadius: 8, padding: 12,
+    borderWidth: 1, borderColor: '#FECACA', marginTop: 12,
   },
-  errorBannerText: {
-    fontSize: 13,
-    color: '#DC2626',
-    fontWeight: '500',
-  },
-  noTripsHint: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  noTripsHintText: {
-    fontSize: 13,
-    color: '#9CA3AF',
-  },
-  chips: {
-    flexDirection: 'row',
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginRight: 8,
-    backgroundColor: '#fafafa',
-  },
-  chipActive: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
-  },
-  chipText: {
-    fontSize: 14,
-    color: '#555',
-  },
-  chipTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  table: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  tableRow: {
-    flexDirection: 'row',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E5E7EB',
-  },
-  tableRowInvalid: {
-    backgroundColor: '#FEF2F2',
-  },
-  tableRowDuplicate: {
-    backgroundColor: '#FFFBEB',
-  },
-  tableCellDuplicate: {
-    color: '#D97706',
-    fontWeight: '700',
-  },
+  errorBannerText: { fontSize: 13, color: '#DC2626', fontWeight: '500' },
+
   duplicateBanner: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    marginBottom: 4,
+    backgroundColor: '#FFFBEB', borderRadius: 8, padding: 12,
+    borderWidth: 1, borderColor: '#FDE68A', marginBottom: 4,
   },
-  duplicateBannerText: {
-    fontSize: 13,
-    color: '#92400E',
-    fontWeight: '500',
-    lineHeight: 18,
+  duplicateBannerText: { fontSize: 13, color: '#92400E', fontWeight: '500', lineHeight: 18 },
+
+  noTripsHint: {
+    backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12,
+    borderWidth: 1, borderColor: '#E5E7EB',
   },
-  tableHeader: {
-    backgroundColor: '#F9FAFB',
+  noTripsHintText: { fontSize: 13, color: '#9CA3AF' },
+
+  chips: { flexDirection: 'row' },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    borderWidth: 1, borderColor: '#ddd', marginRight: 8, backgroundColor: '#fafafa',
   },
-  tableCell: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: '#374151',
+  chipActive: { backgroundColor: ACCENT, borderColor: ACCENT },
+  chipText: { fontSize: 14, color: '#555' },
+  chipTextActive: { color: '#fff', fontWeight: '600' },
+
+  currencyWarning: {
+    backgroundColor: '#FFFBEB', borderRadius: 8, padding: 10,
+    borderWidth: 1, borderColor: '#FDE68A', marginBottom: 8,
   },
-  tableHeaderText: {
-    fontWeight: '700',
-    color: '#6B7280',
-    fontSize: 11,
-    textTransform: 'uppercase',
+  currencyWarningText: { fontSize: 13, color: '#92400E', fontWeight: '500' },
+  currencyInput: {
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 16,
+    color: '#111', backgroundColor: '#fafafa', width: 90,
   },
-  tableCellDate:   { flex: 2 },
-  tableCellTitle:  { flex: 3 },
+
+  table: {
+    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1,
+    borderColor: '#E5E7EB', overflow: 'hidden',
+  },
+  tableRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB' },
+  tableRowInvalid: { backgroundColor: '#FEF2F2' },
+  tableRowDuplicate: { backgroundColor: '#FFFBEB' },
+  tableHeader: { backgroundColor: '#F9FAFB' },
+  tableCell: { paddingHorizontal: 10, paddingVertical: 10, fontSize: 13, color: '#374151' },
+  tableHeaderText: { fontWeight: '700', color: '#6B7280', fontSize: 11, textTransform: 'uppercase' },
+  tableCellDate: { flex: 2 },
+  tableCellTitle: { flex: 3 },
   tableCellAmount: { flex: 2 },
   tableCellStatus: { flex: 1, textAlign: 'center' },
-  bottomActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 24,
-  },
+  tableCellDuplicate: { color: '#D97706', fontWeight: '700' },
+
+  bottomActions: { flexDirection: 'row', gap: 12, marginTop: 24 },
   backBtn: {
-    borderWidth: 1.5,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center',
   },
-  backBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
+  backBtnText: { fontSize: 15, fontWeight: '600', color: '#6B7280' },
   importBtn: {
-    flex: 1,
-    backgroundColor: '#059669',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
+    flex: 1, backgroundColor: '#059669', borderRadius: 10,
+    paddingVertical: 14, alignItems: 'center',
   },
-  importBtnDisabled: {
-    backgroundColor: '#6EE7B7',
-  },
-  importBtnText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  currencyWarning: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    marginBottom: 8,
-  },
-  currencyWarningText: {
-    fontSize: 13,
-    color: '#92400E',
-    fontWeight: '500',
-  },
-  currencyInput: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: '#111',
-    backgroundColor: '#fafafa',
-    width: 90,
-  },
+  importBtnDisabled: { backgroundColor: '#6EE7B7' },
+  importBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
