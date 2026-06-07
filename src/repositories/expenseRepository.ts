@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { Expense, ExpenseCategory, ExpenseStatus, PaymentMethod } from '@/types/expense';
+import type { Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, ReimbursementRelevance } from '@/types/expense';
 import type { Repository } from './index';
 
 interface ExpenseRow {
@@ -28,6 +28,11 @@ interface ExpenseRow {
   is_installment: number;
   installment_index: number | null;
   installment_total: number | null;
+  reimbursement_relevance: string | null;
+  is_reviewed: number;
+  source_card: string | null;
+  billing_month: string | null;
+  import_batch_id: string | null;
 }
 
 function rowToExpense(row: ExpenseRow): Expense {
@@ -56,6 +61,11 @@ function rowToExpense(row: ExpenseRow): Expense {
     isInstallment: row.is_installment === 1 ? true : undefined,
     installmentIndex: row.installment_index ?? undefined,
     installmentTotal: row.installment_total ?? undefined,
+    reimbursementRelevance: (row.reimbursement_relevance as ReimbursementRelevance | null) ?? undefined,
+    isReviewed: row.is_reviewed === 1 ? true : undefined,
+    sourceCard: row.source_card ?? undefined,
+    billingMonth: row.billing_month ?? undefined,
+    importBatchId: row.import_batch_id ?? undefined,
   };
 }
 
@@ -95,7 +105,10 @@ export class ExpenseRepository implements Repository<Expense> {
          deleted_at = ?, work_trip_id = ?, reimbursement_batch_id = ?,
          original_amount = ?, original_currency = ?, charged_amount = ?,
          charged_currency = ?, effective_rate = ?, is_installment = ?,
-         installment_index = ?, installment_total = ?, updated_at = ?
+         installment_index = ?, installment_total = ?,
+         reimbursement_relevance = ?, is_reviewed = ?,
+         source_card = ?, billing_month = ?, import_batch_id = ?,
+         updated_at = ?
        WHERE id = ?`,
       [
         expense.title,
@@ -119,6 +132,11 @@ export class ExpenseRepository implements Repository<Expense> {
         expense.isInstallment ? 1 : 0,
         expense.installmentIndex ?? null,
         expense.installmentTotal ?? null,
+        expense.reimbursementRelevance ?? null,
+        expense.isReviewed ? 1 : 0,
+        expense.sourceCard ?? null,
+        expense.billingMonth ?? null,
+        expense.importBatchId ?? null,
         now,
         expense.id,
       ],
@@ -140,8 +158,9 @@ export class ExpenseRepository implements Repository<Expense> {
           deleted_at, work_trip_id, reimbursement_batch_id,
           original_amount, original_currency, charged_amount, charged_currency,
           effective_rate, is_installment, installment_index, installment_total,
+          reimbursement_relevance, is_reviewed, source_card, billing_month, import_batch_id,
           created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.title,
@@ -165,6 +184,11 @@ export class ExpenseRepository implements Repository<Expense> {
         data.isInstallment ? 1 : 0,
         data.installmentIndex ?? null,
         data.installmentTotal ?? null,
+        data.reimbursementRelevance ?? null,
+        data.isReviewed ? 1 : 0,
+        data.sourceCard ?? null,
+        data.billingMonth ?? null,
+        data.importBatchId ?? null,
         now,
         now,
       ],
@@ -201,6 +225,30 @@ export class ExpenseRepository implements Repository<Expense> {
       'SELECT * FROM expenses WHERE reimbursement_batch_id IS NULL AND deleted_at IS NULL ORDER BY date DESC, created_at DESC',
     );
     return rows.map(rowToExpense);
+  }
+
+  async assignToTrip(expenseId: string, tripId: string | null): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      'UPDATE expenses SET work_trip_id = ?, updated_at = ? WHERE id = ?',
+      [tripId, now, expenseId],
+    );
+  }
+
+  async setReviewed(expenseId: string, isReviewed: boolean): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      'UPDATE expenses SET is_reviewed = ?, updated_at = ? WHERE id = ?',
+      [isReviewed ? 1 : 0, now, expenseId],
+    );
+  }
+
+  async setRelevance(expenseId: string, relevance: ReimbursementRelevance | null): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.runAsync(
+      'UPDATE expenses SET reimbursement_relevance = ?, updated_at = ? WHERE id = ?',
+      [relevance, now, expenseId],
+    );
   }
 
   async assignToBatch(expenseId: string, batchId: string | null): Promise<void> {

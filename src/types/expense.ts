@@ -2,6 +2,8 @@ import type { Entity } from './entity';
 
 export type ExpenseStatus = 'unsubmitted' | 'submitted' | 'approved' | 'paid' | 'rejected';
 
+export type ReimbursementRelevance = 'YES' | 'NO' | 'REVIEW';
+
 export type ExpenseCategory =
   | 'transportation'
   | 'food'
@@ -38,6 +40,13 @@ export interface Expense extends Entity {
   isInstallment?: boolean;
   installmentIndex?: number;
   installmentTotal?: number;
+  // Review workflow fields
+  reimbursementRelevance?: ReimbursementRelevance;
+  isReviewed?: boolean;
+  // Import provenance
+  sourceCard?: string;
+  billingMonth?: string;
+  importBatchId?: string;
 }
 
 export const EXPENSE_CATEGORIES: { value: ExpenseCategory; label: string }[] = [

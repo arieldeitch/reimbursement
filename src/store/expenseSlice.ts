@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { getExpenseRepository } from '@/repositories/expenseRepository';
-import type { Expense, ExpenseCategory, PaymentMethod } from '@/types/expense';
+import type { Expense, ExpenseCategory, PaymentMethod, ReimbursementRelevance } from '@/types/expense';
 
 export interface AddExpenseInput {
   title: string;
@@ -21,6 +21,11 @@ export interface AddExpenseInput {
   isInstallment?: boolean;
   installmentIndex?: number;
   installmentTotal?: number;
+  reimbursementRelevance?: ReimbursementRelevance;
+  isReviewed?: boolean;
+  sourceCard?: string;
+  billingMonth?: string;
+  importBatchId?: string;
 }
 
 interface ExpenseState {
@@ -32,6 +37,9 @@ interface ExpenseState {
   updateExpense: (expense: Expense) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
   assignExpenseToBatch: (expenseId: string, batchId: string | null) => Promise<void>;
+  assignExpenseToTrip: (expenseId: string, tripId: string | null) => Promise<void>;
+  markReviewed: (expenseId: string, isReviewed: boolean) => Promise<void>;
+  setRelevance: (expenseId: string, relevance: ReimbursementRelevance | null) => Promise<void>;
 }
 
 export const useExpenseStore = create<ExpenseState>((set, get) => ({
@@ -93,6 +101,37 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
       expenses: state.expenses.map((e) =>
         e.id === expenseId
           ? { ...e, reimbursementBatchId: batchId ?? undefined }
+          : e,
+      ),
+    }));
+  },
+
+  assignExpenseToTrip: async (expenseId, tripId) => {
+    await getExpenseRepository().assignToTrip(expenseId, tripId);
+    set((state) => ({
+      expenses: state.expenses.map((e) =>
+        e.id === expenseId
+          ? { ...e, workTripId: tripId ?? undefined }
+          : e,
+      ),
+    }));
+  },
+
+  markReviewed: async (expenseId, isReviewed) => {
+    await getExpenseRepository().setReviewed(expenseId, isReviewed);
+    set((state) => ({
+      expenses: state.expenses.map((e) =>
+        e.id === expenseId ? { ...e, isReviewed } : e,
+      ),
+    }));
+  },
+
+  setRelevance: async (expenseId, relevance) => {
+    await getExpenseRepository().setRelevance(expenseId, relevance);
+    set((state) => ({
+      expenses: state.expenses.map((e) =>
+        e.id === expenseId
+          ? { ...e, reimbursementRelevance: relevance ?? undefined }
           : e,
       ),
     }));

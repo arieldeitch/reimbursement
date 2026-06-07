@@ -52,6 +52,21 @@ async function _runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
   if (!expCols.has('installment_total')) {
     await db.runAsync('ALTER TABLE expenses ADD COLUMN installment_total INTEGER');
   }
+  if (!expCols.has('reimbursement_relevance')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN reimbursement_relevance TEXT');
+  }
+  if (!expCols.has('is_reviewed')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN is_reviewed INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!expCols.has('source_card')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN source_card TEXT');
+  }
+  if (!expCols.has('billing_month')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN billing_month TEXT');
+  }
+  if (!expCols.has('import_batch_id')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN import_batch_id TEXT');
+  }
 }
 
 async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {

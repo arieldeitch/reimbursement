@@ -46,6 +46,25 @@ function isDuplicateOf(row: ParsedRow, existing: Expense[]): boolean {
   );
 }
 
+// ─── Import provenance helpers ────────────────────────────────────────────────
+
+function extractSourceCard(filename: string): string {
+  const m = filename.match(/(\d{4})/);
+  return m ? m[1] : '';
+}
+
+function detectBillingMonth(rows: ParsedRow[]): string {
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.date) {
+      const ym = r.date.slice(0, 7);
+      counts[ym] = (counts[ym] ?? 0) + 1;
+    }
+  }
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return best?.[0] ?? new Date().toISOString().slice(0, 7);
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ImportCSVScreen() {
@@ -70,6 +89,12 @@ export default function ImportCSVScreen() {
   const [paymentMethod, setPaymentMethod]         = useState<PaymentMethod>('personal_card');
   const [currencyOverride, setCurrencyOverride]   = useState('');
   const [importing, setImporting]     = useState(false);
+  // Row exclusion
+  const [excludedIndices, setExcludedIndices] = useState<Set<number>>(new Set());
+  // Import provenance (populated per file)
+  const [importBatchId, setImportBatchId]   = useState('');
+  const [sourceCard, setSourceCard]         = useState('');
+  const [billingMonth, setBillingMonth]     = useState('');
 
   // Fallback state
   const [fallbackInfo, setFallbackInfo] = useState<ParseFallback | null>(null);
@@ -82,6 +107,8 @@ export default function ImportCSVScreen() {
   const invalidRows = rows.filter((r) => !r.isValid);
   const missingCurrency = rows.length > 0 && colMap.currency === undefined &&
     colMap.chargedAmount === undefined && colMap.originalAmount === undefined;
+  // Rows selected for import (valid and not manually excluded)
+  const importableCount = rows.filter((r, i) => r.isValid && !excludedIndices.has(i)).length;
 
   const duplicateIndices = useMemo<Set<number>>(() => {
     const set = new Set<number>();
@@ -126,7 +153,26 @@ export default function ImportCSVScreen() {
     setDiagnostics(result.diagnostics);
     setSheetNames(result.sheetNames);
     setFileName(name);
+    setExcludedIndices(new Set());
+    // Populate import provenance
+    setImportBatchId(`ib-${Date.now().toString(36)}`);
+    setSourceCard(extractSourceCard(name));
+    setBillingMonth(detectBillingMonth(result.rows));
     setStep('preview');
+  }
+
+  function toggleRowExclusion(i: number) {
+    if (!rows[i]?.isValid) return;
+    setExcludedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  }
+
+  function selectAllRows() { setExcludedIndices(new Set()); }
+  function deselectAllRows() {
+    setExcludedIndices(new Set(rows.map((r, i) => r.isValid ? i : -1).filter((i) => i >= 0)));
   }
 
   async function processFileBuffer(buffer: ArrayBuffer, name: string) {
@@ -177,9 +223,9 @@ export default function ImportCSVScreen() {
           .filter((s) => s.score === 'VERY_LIKELY' || s.score === 'LIKELY')
           .map((s) => s.rowIndex),
       );
-      rowsToImport = rows.filter((_, i) => highScoreIndices.has(i) && rows[i].isValid);
+      rowsToImport = rows.filter((r, i) => highScoreIndices.has(i) && r.isValid && !excludedIndices.has(i));
     } else {
-      rowsToImport = validRows;
+      rowsToImport = rows.filter((r, i) => r.isValid && !excludedIndices.has(i));
     }
 
     setImporting(true);
@@ -202,6 +248,9 @@ export default function ImportCSVScreen() {
           isInstallment: row.isInstallment || undefined,
           installmentIndex: row.installmentIndex ?? undefined,
           installmentTotal: row.installmentTotal ?? undefined,
+          sourceCard: sourceCard || undefined,
+          billingMonth: billingMonth || undefined,
+          importBatchId: importBatchId || undefined,
         });
       }
       Alert.alert(
@@ -258,6 +307,11 @@ export default function ImportCSVScreen() {
             onSelectTrip={setSelectedTripId}
             scoreByIndex={scoreByIndex}
             recommendedCount={recommendedCount}
+            excludedIndices={excludedIndices}
+            importableCount={importableCount}
+            onToggleRow={toggleRowExclusion}
+            onSelectAll={selectAllRows}
+            onDeselectAll={deselectAllRows}
             onImport={handleImport}
             onBack={() => setStep('upload')}
             importing={importing}
@@ -474,6 +528,11 @@ interface PreviewProps {
   onSelectTrip: (id: string | undefined) => void;
   scoreByIndex: Map<number, ScoredRow>;
   recommendedCount: number;
+  excludedIndices: Set<number>;
+  importableCount: number;
+  onToggleRow: (i: number) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
   onImport: (recommendedOnly?: boolean) => void;
   onBack: () => void;
   importing: boolean;
@@ -497,12 +556,16 @@ function PreviewStep({
   onSelectTrip,
   scoreByIndex,
   recommendedCount,
+  excludedIndices,
+  importableCount,
+  onToggleRow,
+  onSelectAll,
+  onDeselectAll,
   onImport,
   onBack,
   importing,
   isWide,
 }: PreviewProps) {
-  const previewRows = rows.slice(0, 10);
   const duplicateCount = duplicateIndices.size;
   const hasScoring = scoreByIndex.size > 0;
   const hasDualCurrency = rows.some((r) => r.originalCurrency && r.originalCurrency !== r.chargedCurrency);
@@ -668,11 +731,22 @@ function PreviewStep({
         </>
       )}
 
-      {/* Preview table */}
-      <Text style={styles.sectionLabel}>Preview (first {previewRows.length} rows)</Text>
+      {/* Preview table with row-level inclusion checkboxes */}
+      <View style={styles.previewTableHeader}>
+        <Text style={styles.sectionLabel}>Select Rows ({importableCount} of {validRows.length} selected)</Text>
+        <View style={styles.selectAllRow}>
+          <Pressable onPress={onSelectAll} style={styles.selectAllBtn}>
+            <Text style={styles.selectAllBtnText}>All</Text>
+          </Pressable>
+          <Pressable onPress={onDeselectAll} style={styles.selectAllBtn}>
+            <Text style={styles.selectAllBtnText}>None</Text>
+          </Pressable>
+        </View>
+      </View>
       <ScrollView horizontal={isWide && (hasDualCurrency || hasScoring)}>
-        <View style={[styles.table, isWide && (hasDualCurrency || hasScoring) && { minWidth: 760 }]}>
+        <View style={[styles.table, isWide && (hasDualCurrency || hasScoring) && { minWidth: 820 }]}>
           <View style={[styles.tableRow, styles.tableHeader]}>
+            <Text style={[styles.tableCell, styles.tableCellCheck, styles.tableHeaderText]}>☑</Text>
             <Text style={[styles.tableCell, styles.tableCellDate, styles.tableHeaderText]}>Date</Text>
             <Text style={[styles.tableCell, styles.tableCellTitle, styles.tableHeaderText]}>Merchant</Text>
             {isWide && hasDualCurrency && (
@@ -687,35 +761,46 @@ function PreviewStep({
             )}
             <Text style={[styles.tableCell, styles.tableCellStatus, styles.tableHeaderText]}>OK</Text>
           </View>
-          {previewRows.map((row, i) => {
+          {rows.map((row, i) => {
             const isDup = duplicateIndices.has(i);
             const scored = scoreByIndex.get(i);
             const showFx = isWide && hasDualCurrency;
             const showScore = isWide && hasScoring;
+            const isExcluded = excludedIndices.has(i);
+            const isIncluded = row.isValid && !isExcluded;
             return (
-              <View key={i} style={[
-                styles.tableRow,
-                !row.isValid && styles.tableRowInvalid,
-                isDup && styles.tableRowDuplicate,
-              ]}>
-                <Text style={[styles.tableCell, styles.tableCellDate]} numberOfLines={1}>
+              <Pressable
+                key={i}
+                style={[
+                  styles.tableRow,
+                  !row.isValid && styles.tableRowInvalid,
+                  isDup && styles.tableRowDuplicate,
+                  isExcluded && styles.tableRowExcluded,
+                ]}
+                onPress={() => onToggleRow(i)}
+                disabled={!row.isValid}
+              >
+                <Text style={[styles.tableCell, styles.tableCellCheck, isIncluded && styles.checkOn]}>
+                  {!row.isValid ? ' ' : isIncluded ? '☑' : '☐'}
+                </Text>
+                <Text style={[styles.tableCell, styles.tableCellDate, isExcluded && styles.cellExcluded]} numberOfLines={1}>
                   {row.date ?? '—'}
                 </Text>
-                <Text style={[styles.tableCell, styles.tableCellTitle]} numberOfLines={1}>
+                <Text style={[styles.tableCell, styles.tableCellTitle, isExcluded && styles.cellExcluded]} numberOfLines={1}>
                   {row.merchantName ?? row.title ?? '—'}
                 </Text>
                 {showFx && (
-                  <Text style={[styles.tableCell, styles.tableCellFx]} numberOfLines={1}>
+                  <Text style={[styles.tableCell, styles.tableCellFx, isExcluded && styles.cellExcluded]} numberOfLines={1}>
                     {row.originalAmount !== null && row.originalCurrency && row.originalCurrency !== row.chargedCurrency
                       ? `${row.originalCurrency} ${row.originalAmount.toFixed(2)}`
                       : '—'}
                   </Text>
                 )}
-                <Text style={[styles.tableCell, styles.tableCellAmount]} numberOfLines={1}>
+                <Text style={[styles.tableCell, styles.tableCellAmount, isExcluded && styles.cellExcluded]} numberOfLines={1}>
                   {row.amount !== null ? `${row.currency} ${row.amount.toFixed(2)}` : '—'}
                 </Text>
                 {showFx && (
-                  <Text style={[styles.tableCell, styles.tableCellRate]} numberOfLines={1}>
+                  <Text style={[styles.tableCell, styles.tableCellRate, isExcluded && styles.cellExcluded]} numberOfLines={1}>
                     {row.effectiveRate ? `×${row.effectiveRate.toFixed(2)}` : '—'}
                   </Text>
                 )}
@@ -731,7 +816,7 @@ function PreviewStep({
                 <Text style={[styles.tableCell, styles.tableCellStatus, isDup && styles.tableCellDuplicate]}>
                   {!row.isValid ? '✗' : isDup ? '⚠' : '✓'}
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -962,6 +1047,14 @@ const styles = StyleSheet.create({
   tableRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB' },
   tableRowInvalid: { backgroundColor: '#FEF2F2' },
   tableRowDuplicate: { backgroundColor: '#FFFBEB' },
+  tableRowExcluded: { opacity: 0.4 },
+  tableCellCheck: { flex: 0.8, textAlign: 'center' as const, fontSize: 15, color: '#9CA3AF' },
+  checkOn: { color: '#059669' },
+  cellExcluded: { color: '#9CA3AF' },
+  previewTableHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  selectAllRow: { flexDirection: 'row', gap: 8 },
+  selectAllBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB' },
+  selectAllBtnText: { fontSize: 12, color: '#374151', fontWeight: '600' },
   tableHeader: { backgroundColor: '#F9FAFB' },
   tableCell: { paddingHorizontal: 10, paddingVertical: 10, fontSize: 13, color: '#374151' },
   tableHeaderText: { fontWeight: '700', color: '#6B7280', fontSize: 11, textTransform: 'uppercase' },
