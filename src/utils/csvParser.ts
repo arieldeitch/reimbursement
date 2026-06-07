@@ -8,8 +8,17 @@ export interface ParsedRow {
   raw: string[];
   date: string | null;
   title: string | null;
-  amount: number | null;
-  currency: string;
+  merchantName: string | null;   // title with installment suffix stripped
+  amount: number | null;         // primary charged amount (ILS for Israeli cards)
+  currency: string;              // primary currency (ILS for Israeli cards)
+  originalAmount: number | null; // foreign/total transaction amount
+  originalCurrency: string | null;
+  chargedAmount: number | null;  // what was billed this cycle
+  chargedCurrency: string | null;
+  effectiveRate: number | null;  // chargedAmount / originalAmount when currencies differ
+  isInstallment: boolean;
+  installmentIndex: number | null;
+  installmentTotal: number | null;
   category: ExpenseCategory;
   notes: string;
   isValid: boolean;
@@ -185,13 +194,28 @@ const COL_ALIASES: Record<string, string[]> = {
     'title', 'description', 'desc', 'memo', 'narrative', 'payee', 'name',
     'merchant', 'details',
   ],
+  // Generic amount fallback — specific Hebrew columns handled by originalAmount/chargedAmount
   amount: [
     'סכום עסקה', 'סכום חיוב', 'סכום',
     'amount', 'debit', 'credit', 'charge', 'sum', 'total', 'value',
   ],
+  // Original/foreign transaction amount (e.g. € 45.00 in Bank Hapoalim exports)
+  originalAmount: [
+    'סכום עסקה', 'original amount', 'transaction amount', 'foreign amount',
+  ],
+  // Charged amount — what the card actually billed this cycle (e.g. ₪ 178.44)
+  chargedAmount: [
+    'סכום חיוב', 'charged amount', 'billing amount', 'billed amount',
+  ],
   currency: [
     'מטבע חיוב', 'מטבע עסקה מקורי', 'מטבע',
     'currency', 'ccy', 'curr',
+  ],
+  originalCurrency: [
+    'מטבע עסקה מקורי', 'מטבע מקורי', 'original currency', 'transaction currency', 'foreign currency',
+  ],
+  chargedCurrency: [
+    'מטבע חיוב', 'charged currency', 'billing currency',
   ],
   category: ['קטגוריה', 'ענף', 'category', 'type', 'tag'],
   notes: ['הערות', 'הערה', 'notes', 'note', 'comment', 'reference', 'ref', 'remarks'],
@@ -285,6 +309,56 @@ function parseAmountFull(s: string): AmountParsed {
   return { amount: isNaN(n) ? null : Math.abs(n), detectedCurrency: null };
 }
 
+// ─── Installment detection ────────────────────────────────────────────────────
+
+interface InstallmentInfo {
+  isInstallment: boolean;
+  installmentIndex: number | null;
+  installmentTotal: number | null;
+}
+
+// Detect "תשלום X מתוך Y" in bank notes column (Bank Hapoalim format)
+function detectInstallmentFromNotes(notes: string): InstallmentInfo {
+  if (!notes) return { isInstallment: false, installmentIndex: null, installmentTotal: null };
+  const m = notes.match(/תשלום\s+(\d+)\s+מתוך\s+(\d+)/);
+  if (m) {
+    const idx = parseInt(m[1]);
+    const total = parseInt(m[2]);
+    if (!isNaN(idx) && !isNaN(total) && total > 1) {
+      return { isInstallment: true, installmentIndex: idx, installmentTotal: total };
+    }
+  }
+  return { isInstallment: false, installmentIndex: null, installmentTotal: null };
+}
+
+// Detect installment suffixes embedded in the merchant/title field (other card formats)
+// Returns cleaned merchantName as well
+function detectInstallmentFromTitle(title: string): InstallmentInfo & { merchantName: string } {
+  const patterns: RegExp[] = [
+    /\s+תשלום\s+(\d+)\s+מתוך\s+(\d+)\s*$/,
+    /\s+תשלום\s+(\d+)\s+מ-(\d+)\s*$/,
+    /\s+(\d+)\s+מתוך\s+(\d+)\s*$/,
+    /\s+(\d+)\/(\d+)\s*$/,
+    /\s*\((\d+)\/(\d+)\)\s*$/,
+  ];
+  for (const p of patterns) {
+    const m = title.match(p);
+    if (m) {
+      const idx = parseInt(m[1]);
+      const total = parseInt(m[2]);
+      if (!isNaN(idx) && !isNaN(total) && total > 1) {
+        return {
+          merchantName: title.replace(p, '').trim(),
+          isInstallment: true,
+          installmentIndex: idx,
+          installmentTotal: total,
+        };
+      }
+    }
+  }
+  return { merchantName: title, isInstallment: false, installmentIndex: null, installmentTotal: null };
+}
+
 // ─── Category mapping ─────────────────────────────────────────────────────────
 
 const KNOWN_CATEGORIES: ExpenseCategory[] = [
@@ -336,22 +410,51 @@ function buildRows(
       return true;
     })
     .map((raw) => {
-      const dateStr   = colMap.date     !== undefined ? (raw[colMap.date]     ?? '') : '';
-      const titleStr  = colMap.title    !== undefined ? (raw[colMap.title]    ?? '') : '';
-      const amountStr = colMap.amount   !== undefined ? (raw[colMap.amount]   ?? '') : '';
-      const currStr   = colMap.currency !== undefined ? (raw[colMap.currency] ?? '') : '';
-      const catStr    = colMap.category !== undefined ? (raw[colMap.category] ?? '') : '';
-      const notesStr  = colMap.notes    !== undefined ? (raw[colMap.notes]    ?? '') : '';
+      const dateStr         = colMap.date             !== undefined ? (raw[colMap.date]             ?? '') : '';
+      const titleStr        = colMap.title            !== undefined ? (raw[colMap.title]            ?? '') : '';
+      const amountStr       = colMap.amount           !== undefined ? (raw[colMap.amount]           ?? '') : '';
+      const origAmtStr      = colMap.originalAmount   !== undefined ? (raw[colMap.originalAmount]   ?? '') : '';
+      const chrgAmtStr      = colMap.chargedAmount    !== undefined ? (raw[colMap.chargedAmount]    ?? '') : '';
+      const currStr         = colMap.currency         !== undefined ? (raw[colMap.currency]         ?? '') : '';
+      const origCurrStr     = colMap.originalCurrency !== undefined ? (raw[colMap.originalCurrency] ?? '') : '';
+      const chrgCurrStr     = colMap.chargedCurrency  !== undefined ? (raw[colMap.chargedCurrency]  ?? '') : '';
+      const catStr          = colMap.category         !== undefined ? (raw[colMap.category]         ?? '') : '';
+      const notesStr        = colMap.notes            !== undefined ? (raw[colMap.notes]            ?? '') : '';
 
       const date  = parseDate(dateStr);
-      const title = titleStr.trim() || null;
+      const rawTitle = titleStr.trim() || null;
 
-      const { amount, detectedCurrency } = parseAmountFull(amountStr);
+      // Parse all amount columns
+      const { amount: parsedAmt,  detectedCurrency: parsedCcy  } = parseAmountFull(amountStr);
+      const { amount: origAmt,    detectedCurrency: origCcy    } = parseAmountFull(origAmtStr);
+      const { amount: chrgAmt,    detectedCurrency: chrgCcy    } = parseAmountFull(chrgAmtStr);
 
-      // Currency: explicit column > embedded in amount > default ILS for Israeli files
-      const currency = currStr.trim()
-        ? normalizeCurrencyCode(currStr)
-        : (detectedCurrency ?? 'ILS');
+      // Resolve currencies
+      const origCurrCode  = origCurrStr.trim()  ? normalizeCurrencyCode(origCurrStr)  : (origCcy  ?? null);
+      const chrgCurrCode  = chrgCurrStr.trim()  ? normalizeCurrencyCode(chrgCurrStr)  : (chrgCcy  ?? null);
+      const fallbackCurr  = currStr.trim()       ? normalizeCurrencyCode(currStr)       : null;
+
+      // Primary amount: chargedAmount (ILS billed this cycle) > generic amount fallback
+      const amount   = chrgAmt ?? parsedAmt;
+      const currency = chrgCurrCode ?? fallbackCurr ?? parsedCcy ?? 'ILS';
+
+      // Effective exchange rate — only meaningful when currencies differ
+      const effectiveRate =
+        chrgAmt && origAmt && origAmt !== 0 &&
+        origCurrCode && chrgCurrCode && origCurrCode !== chrgCurrCode
+          ? chrgAmt / origAmt
+          : null;
+
+      // Installment: notes column first (Bank Hapoalim format), then title suffix
+      const notesInstallment = detectInstallmentFromNotes(notesStr);
+      const titleInstallment = rawTitle ? detectInstallmentFromTitle(rawTitle) : null;
+
+      const isInstallment    = notesInstallment.isInstallment || (titleInstallment?.isInstallment ?? false);
+      const installmentIndex = notesInstallment.installmentIndex ?? titleInstallment?.installmentIndex ?? null;
+      const installmentTotal = notesInstallment.installmentTotal ?? titleInstallment?.installmentTotal ?? null;
+      const merchantName     = titleInstallment?.merchantName ?? rawTitle;
+
+      const title = rawTitle; // keep raw title; merchantName has the cleaned version
 
       const category = mapCategory(catStr);
 
@@ -364,8 +467,17 @@ function buildRows(
         raw,
         date,
         title,
+        merchantName,
         amount,
         currency,
+        originalAmount: origAmt,
+        originalCurrency: origCurrCode,
+        chargedAmount: chrgAmt,
+        chargedCurrency: chrgCurrCode,
+        effectiveRate,
+        isInstallment,
+        installmentIndex,
+        installmentTotal,
         category,
         notes: notesStr.trim(),
         isValid: !error,

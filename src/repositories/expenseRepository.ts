@@ -20,6 +20,14 @@ interface ExpenseRow {
   reimbursement_batch_id: string | null;
   created_at: string;
   updated_at: string;
+  original_amount: number | null;
+  original_currency: string | null;
+  charged_amount: number | null;
+  charged_currency: string | null;
+  effective_rate: number | null;
+  is_installment: number;
+  installment_index: number | null;
+  installment_total: number | null;
 }
 
 function rowToExpense(row: ExpenseRow): Expense {
@@ -40,6 +48,14 @@ function rowToExpense(row: ExpenseRow): Expense {
     reimbursementBatchId: row.reimbursement_batch_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    originalAmount: row.original_amount ?? undefined,
+    originalCurrency: row.original_currency ?? undefined,
+    chargedAmount: row.charged_amount ?? undefined,
+    chargedCurrency: row.charged_currency ?? undefined,
+    effectiveRate: row.effective_rate ?? undefined,
+    isInstallment: row.is_installment === 1 ? true : undefined,
+    installmentIndex: row.installment_index ?? undefined,
+    installmentTotal: row.installment_total ?? undefined,
   };
 }
 
@@ -76,7 +92,10 @@ export class ExpenseRepository implements Repository<Expense> {
          title = ?, amount = ?, currency = ?, date = ?, category = ?,
          payment_method = ?, status = ?, notes = ?,
          has_receipt = ?, receipt_missing_reason = ?,
-         deleted_at = ?, work_trip_id = ?, reimbursement_batch_id = ?, updated_at = ?
+         deleted_at = ?, work_trip_id = ?, reimbursement_batch_id = ?,
+         original_amount = ?, original_currency = ?, charged_amount = ?,
+         charged_currency = ?, effective_rate = ?, is_installment = ?,
+         installment_index = ?, installment_total = ?, updated_at = ?
        WHERE id = ?`,
       [
         expense.title,
@@ -92,6 +111,14 @@ export class ExpenseRepository implements Repository<Expense> {
         expense.deletedAt ?? null,
         expense.workTripId ?? null,
         expense.reimbursementBatchId ?? null,
+        expense.originalAmount ?? null,
+        expense.originalCurrency ?? null,
+        expense.chargedAmount ?? null,
+        expense.chargedCurrency ?? null,
+        expense.effectiveRate ?? null,
+        expense.isInstallment ? 1 : 0,
+        expense.installmentIndex ?? null,
+        expense.installmentTotal ?? null,
         now,
         expense.id,
       ],
@@ -110,8 +137,11 @@ export class ExpenseRepository implements Repository<Expense> {
       `INSERT INTO expenses
          (id, title, amount, currency, date, category, payment_method,
           status, notes, has_receipt, receipt_missing_reason,
-          deleted_at, work_trip_id, reimbursement_batch_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          deleted_at, work_trip_id, reimbursement_batch_id,
+          original_amount, original_currency, charged_amount, charged_currency,
+          effective_rate, is_installment, installment_index, installment_total,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.title,
@@ -127,6 +157,14 @@ export class ExpenseRepository implements Repository<Expense> {
         data.deletedAt ?? null,
         data.workTripId ?? null,
         data.reimbursementBatchId ?? null,
+        data.originalAmount ?? null,
+        data.originalCurrency ?? null,
+        data.chargedAmount ?? null,
+        data.chargedCurrency ?? null,
+        data.effectiveRate ?? null,
+        data.isInstallment ? 1 : 0,
+        data.installmentIndex ?? null,
+        data.installmentTotal ?? null,
         now,
         now,
       ],

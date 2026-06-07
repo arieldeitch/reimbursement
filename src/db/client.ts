@@ -28,6 +28,30 @@ async function _runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
   if (!expCols.has('receipt_missing_reason')) {
     await db.runAsync('ALTER TABLE expenses ADD COLUMN receipt_missing_reason TEXT');
   }
+  if (!expCols.has('original_amount')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN original_amount REAL');
+  }
+  if (!expCols.has('original_currency')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN original_currency TEXT');
+  }
+  if (!expCols.has('charged_amount')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN charged_amount REAL');
+  }
+  if (!expCols.has('charged_currency')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN charged_currency TEXT');
+  }
+  if (!expCols.has('effective_rate')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN effective_rate REAL');
+  }
+  if (!expCols.has('is_installment')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN is_installment INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!expCols.has('installment_index')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN installment_index INTEGER');
+  }
+  if (!expCols.has('installment_total')) {
+    await db.runAsync('ALTER TABLE expenses ADD COLUMN installment_total INTEGER');
+  }
 }
 
 async function _initSchema(db: SQLite.SQLiteDatabase): Promise<void> {

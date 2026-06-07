@@ -13,6 +13,14 @@ export interface AddExpenseInput {
   notes?: string;
   workTripId?: string;
   hasReceipt?: boolean;
+  originalAmount?: number;
+  originalCurrency?: string;
+  chargedAmount?: number;
+  chargedCurrency?: string;
+  effectiveRate?: number;
+  isInstallment?: boolean;
+  installmentIndex?: number;
+  installmentTotal?: number;
 }
 
 interface ExpenseState {
@@ -47,6 +55,14 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
       status: 'unsubmitted',
       hasReceipt: input.hasReceipt ?? false,
       deletedAt: null,
+      originalAmount: input.originalAmount,
+      originalCurrency: input.originalCurrency,
+      chargedAmount: input.chargedAmount,
+      chargedCurrency: input.chargedCurrency,
+      effectiveRate: input.effectiveRate,
+      isInstallment: input.isInstallment,
+      installmentIndex: input.installmentIndex,
+      installmentTotal: input.installmentTotal,
     });
     set((state) => ({ expenses: [expense, ...state.expenses] }));
   },

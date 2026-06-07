@@ -23,6 +23,11 @@ import {
   type ParsedRow,
   type ParseFallback,
 } from '@/utils/csvParser';
+import {
+  scoreRowsForTrip,
+  type RecommendationScore,
+  type ScoredRow,
+} from '@/utils/tripScorer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,7 +80,8 @@ export default function ImportCSVScreen() {
 
   const validRows   = rows.filter((r) => r.isValid);
   const invalidRows = rows.filter((r) => !r.isValid);
-  const missingCurrency = rows.length > 0 && colMap.currency === undefined;
+  const missingCurrency = rows.length > 0 && colMap.currency === undefined &&
+    colMap.chargedAmount === undefined && colMap.originalAmount === undefined;
 
   const duplicateIndices = useMemo<Set<number>>(() => {
     const set = new Set<number>();
@@ -84,6 +90,25 @@ export default function ImportCSVScreen() {
     });
     return set;
   }, [rows, expenses]);
+
+  // Trip recommendation scoring
+  const selectedTrip = trips.find((t) => t.id === selectedTripId) ?? null;
+  const scoredRows = useMemo<ScoredRow[]>(() => {
+    if (!selectedTrip || rows.length === 0) return [];
+    return scoreRowsForTrip(rows, selectedTrip);
+  }, [rows, selectedTrip]);
+
+  const scoreByIndex = useMemo<Map<number, ScoredRow>>(() => {
+    const m = new Map<number, ScoredRow>();
+    scoredRows.forEach((s) => m.set(s.rowIndex, s));
+    return m;
+  }, [scoredRows]);
+
+  const recommendedCount = useMemo(() => {
+    return scoredRows.filter(
+      (s) => (s.score === 'VERY_LIKELY' || s.score === 'LIKELY') && rows[s.rowIndex]?.isValid,
+    ).length;
+  }, [scoredRows, rows]);
 
   function applyParseResult(result: ReturnType<typeof parseImportFile>, name: string) {
     if (!result.ok) {
@@ -139,16 +164,29 @@ export default function ImportCSVScreen() {
     applyParseResult(result, lastFileName);
   }
 
-  async function handleImport() {
+  async function handleImport(recommendedOnly = false) {
     if (validRows.length === 0) return;
     const resolvedCurrency = missingCurrency && currencyOverride.trim()
       ? currencyOverride.trim().toUpperCase().slice(0, 3)
       : undefined;
+
+    let rowsToImport: ParsedRow[];
+    if (recommendedOnly && scoredRows.length > 0) {
+      const highScoreIndices = new Set(
+        scoredRows
+          .filter((s) => s.score === 'VERY_LIKELY' || s.score === 'LIKELY')
+          .map((s) => s.rowIndex),
+      );
+      rowsToImport = rows.filter((_, i) => highScoreIndices.has(i) && rows[i].isValid);
+    } else {
+      rowsToImport = validRows;
+    }
+
     setImporting(true);
     try {
-      for (const row of validRows) {
+      for (const row of rowsToImport) {
         await addExpense({
-          title: row.title!,
+          title: row.merchantName ?? row.title!,
           amount: row.amount!,
           currency: resolvedCurrency ?? row.currency,
           date: row.date!,
@@ -156,11 +194,19 @@ export default function ImportCSVScreen() {
           paymentMethod,
           notes: row.notes || undefined,
           workTripId: selectedTripId,
+          originalAmount: row.originalAmount ?? undefined,
+          originalCurrency: row.originalCurrency ?? undefined,
+          chargedAmount: row.chargedAmount ?? undefined,
+          chargedCurrency: row.chargedCurrency ?? undefined,
+          effectiveRate: row.effectiveRate ?? undefined,
+          isInstallment: row.isInstallment || undefined,
+          installmentIndex: row.installmentIndex ?? undefined,
+          installmentTotal: row.installmentTotal ?? undefined,
         });
       }
       Alert.alert(
         'Import Complete',
-        `${validRows.length} expense${validRows.length !== 1 ? 's' : ''} imported successfully.`,
+        `${rowsToImport.length} expense${rowsToImport.length !== 1 ? 's' : ''} imported successfully.`,
         [{ text: 'OK', onPress: () => router.push(selectedTripId ? `/trip/${selectedTripId}` : '/expenses') }],
       );
     } catch (e) {
@@ -210,9 +256,12 @@ export default function ImportCSVScreen() {
             openTrips={openTrips}
             selectedTripId={selectedTripId}
             onSelectTrip={setSelectedTripId}
+            scoreByIndex={scoreByIndex}
+            recommendedCount={recommendedCount}
             onImport={handleImport}
             onBack={() => setStep('upload')}
             importing={importing}
+            isWide={isWide}
           />
         )}
 
@@ -423,9 +472,12 @@ interface PreviewProps {
   openTrips: { id: string; name: string }[];
   selectedTripId: string | undefined;
   onSelectTrip: (id: string | undefined) => void;
-  onImport: () => void;
+  scoreByIndex: Map<number, ScoredRow>;
+  recommendedCount: number;
+  onImport: (recommendedOnly?: boolean) => void;
   onBack: () => void;
   importing: boolean;
+  isWide: boolean;
 }
 
 function PreviewStep({
@@ -443,12 +495,17 @@ function PreviewStep({
   openTrips,
   selectedTripId,
   onSelectTrip,
+  scoreByIndex,
+  recommendedCount,
   onImport,
   onBack,
   importing,
+  isWide,
 }: PreviewProps) {
   const previewRows = rows.slice(0, 10);
   const duplicateCount = duplicateIndices.size;
+  const hasScoring = scoreByIndex.size > 0;
+  const hasDualCurrency = rows.some((r) => r.originalCurrency && r.originalCurrency !== r.chargedCurrency);
 
   return (
     <View>
@@ -595,59 +652,184 @@ function PreviewStep({
         </>
       )}
 
+      {/* Smart trip assignment wizard */}
+      {hasScoring && selectedTripId && (
+        <>
+          <Text style={styles.sectionLabel}>Smart Trip Assignment</Text>
+          <View style={styles.wizardBox}>
+            <ScoreSummaryRow rows={rows} scoreByIndex={scoreByIndex} />
+            {recommendedCount > 0 && (
+              <Text style={styles.wizardHint}>
+                {recommendedCount} expense{recommendedCount !== 1 ? 's' : ''} scored VERY LIKELY or LIKELY for this trip.
+                Use "Import Matched" to import only those, or "Import All" for everything valid.
+              </Text>
+            )}
+          </View>
+        </>
+      )}
+
       {/* Preview table */}
       <Text style={styles.sectionLabel}>Preview (first {previewRows.length} rows)</Text>
-      <View style={styles.table}>
-        <View style={[styles.tableRow, styles.tableHeader]}>
-          <Text style={[styles.tableCell, styles.tableCellDate, styles.tableHeaderText]}>Date</Text>
-          <Text style={[styles.tableCell, styles.tableCellTitle, styles.tableHeaderText]}>Title</Text>
-          <Text style={[styles.tableCell, styles.tableCellAmount, styles.tableHeaderText]}>Amount</Text>
-          <Text style={[styles.tableCell, styles.tableCellStatus, styles.tableHeaderText]}>OK</Text>
+      <ScrollView horizontal={isWide && (hasDualCurrency || hasScoring)}>
+        <View style={[styles.table, isWide && (hasDualCurrency || hasScoring) && { minWidth: 760 }]}>
+          <View style={[styles.tableRow, styles.tableHeader]}>
+            <Text style={[styles.tableCell, styles.tableCellDate, styles.tableHeaderText]}>Date</Text>
+            <Text style={[styles.tableCell, styles.tableCellTitle, styles.tableHeaderText]}>Merchant</Text>
+            {isWide && hasDualCurrency && (
+              <Text style={[styles.tableCell, styles.tableCellFx, styles.tableHeaderText]}>Original</Text>
+            )}
+            <Text style={[styles.tableCell, styles.tableCellAmount, styles.tableHeaderText]}>Charged</Text>
+            {isWide && hasDualCurrency && (
+              <Text style={[styles.tableCell, styles.tableCellRate, styles.tableHeaderText]}>Rate</Text>
+            )}
+            {isWide && hasScoring && (
+              <Text style={[styles.tableCell, styles.tableCellScore, styles.tableHeaderText]}>Match</Text>
+            )}
+            <Text style={[styles.tableCell, styles.tableCellStatus, styles.tableHeaderText]}>OK</Text>
+          </View>
+          {previewRows.map((row, i) => {
+            const isDup = duplicateIndices.has(i);
+            const scored = scoreByIndex.get(i);
+            const showFx = isWide && hasDualCurrency;
+            const showScore = isWide && hasScoring;
+            return (
+              <View key={i} style={[
+                styles.tableRow,
+                !row.isValid && styles.tableRowInvalid,
+                isDup && styles.tableRowDuplicate,
+              ]}>
+                <Text style={[styles.tableCell, styles.tableCellDate]} numberOfLines={1}>
+                  {row.date ?? '—'}
+                </Text>
+                <Text style={[styles.tableCell, styles.tableCellTitle]} numberOfLines={1}>
+                  {row.merchantName ?? row.title ?? '—'}
+                </Text>
+                {showFx && (
+                  <Text style={[styles.tableCell, styles.tableCellFx]} numberOfLines={1}>
+                    {row.originalAmount !== null && row.originalCurrency && row.originalCurrency !== row.chargedCurrency
+                      ? `${row.originalCurrency} ${row.originalAmount.toFixed(2)}`
+                      : '—'}
+                  </Text>
+                )}
+                <Text style={[styles.tableCell, styles.tableCellAmount]} numberOfLines={1}>
+                  {row.amount !== null ? `${row.currency} ${row.amount.toFixed(2)}` : '—'}
+                </Text>
+                {showFx && (
+                  <Text style={[styles.tableCell, styles.tableCellRate]} numberOfLines={1}>
+                    {row.effectiveRate ? `×${row.effectiveRate.toFixed(2)}` : '—'}
+                  </Text>
+                )}
+                {showScore && (
+                  <View style={[styles.tableCell, styles.tableCellScore]}>
+                    {scored && scored.score !== 'IGNORE' ? (
+                      <ScoreBadge score={scored.score} compact />
+                    ) : (
+                      <Text style={styles.scoreIgnore}>—</Text>
+                    )}
+                  </View>
+                )}
+                <Text style={[styles.tableCell, styles.tableCellStatus, isDup && styles.tableCellDuplicate]}>
+                  {!row.isValid ? '✗' : isDup ? '⚠' : '✓'}
+                </Text>
+              </View>
+            );
+          })}
         </View>
-        {previewRows.map((row, i) => {
-          const isDup = duplicateIndices.has(i);
-          return (
-            <View key={i} style={[
-              styles.tableRow,
-              !row.isValid && styles.tableRowInvalid,
-              isDup && styles.tableRowDuplicate,
-            ]}>
-              <Text style={[styles.tableCell, styles.tableCellDate]} numberOfLines={1}>
-                {row.date ?? '—'}
-              </Text>
-              <Text style={[styles.tableCell, styles.tableCellTitle]} numberOfLines={1}>
-                {row.title ?? '—'}
-              </Text>
-              <Text style={[styles.tableCell, styles.tableCellAmount]} numberOfLines={1}>
-                {row.amount !== null ? `${row.currency} ${row.amount.toFixed(2)}` : '—'}
-              </Text>
-              <Text style={[styles.tableCell, styles.tableCellStatus, isDup && styles.tableCellDuplicate]}>
-                {!row.isValid ? '✗' : isDup ? '⚠' : '✓'}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
+      </ScrollView>
 
       {/* Actions */}
       <View style={styles.bottomActions}>
         <Pressable style={styles.backBtn} onPress={onBack}>
           <Text style={styles.backBtnText}>← Back</Text>
         </Pressable>
+        {hasScoring && recommendedCount > 0 && (
+          <Pressable
+            style={[styles.importBtnMatched, importing && styles.importBtnDisabled]}
+            onPress={() => onImport(true)}
+            disabled={importing}
+          >
+            {importing ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.importBtnText}>
+                Import Matched ({recommendedCount})
+              </Text>
+            )}
+          </Pressable>
+        )}
         <Pressable
           style={[styles.importBtn, (validRows.length === 0 || importing) && styles.importBtnDisabled]}
-          onPress={onImport}
+          onPress={() => onImport(false)}
           disabled={validRows.length === 0 || importing}
         >
           {importing ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
             <Text style={styles.importBtnText}>
-              Import {validRows.length} Expense{validRows.length !== 1 ? 's' : ''}
+              {hasScoring && recommendedCount > 0
+                ? `Import All (${validRows.length})`
+                : `Import ${validRows.length} Expense${validRows.length !== 1 ? 's' : ''}`}
             </Text>
           )}
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+// ─── Score summary row ───────────────────────────────────────────────────────
+
+function ScoreSummaryRow({
+  rows,
+  scoreByIndex,
+}: {
+  rows: ParsedRow[];
+  scoreByIndex: Map<number, ScoredRow>;
+}) {
+  const counts: Record<RecommendationScore, number> = {
+    VERY_LIKELY: 0, LIKELY: 0, REVIEW: 0, IGNORE: 0,
+  };
+  rows.forEach((r, i) => {
+    if (!r.isValid) return;
+    const s = scoreByIndex.get(i);
+    if (s) counts[s.score]++;
+  });
+
+  const SCORE_LABELS: { score: RecommendationScore; label: string; color: string; bg: string }[] = [
+    { score: 'VERY_LIKELY', label: 'Very Likely', color: '#065F46', bg: '#D1FAE5' },
+    { score: 'LIKELY',      label: 'Likely',      color: '#1D4ED8', bg: '#DBEAFE' },
+    { score: 'REVIEW',      label: 'Review',      color: '#92400E', bg: '#FEF3C7' },
+    { score: 'IGNORE',      label: 'Ignore',      color: '#6B7280', bg: '#F3F4F6' },
+  ];
+
+  return (
+    <View style={styles.scoreSummaryRow}>
+      {SCORE_LABELS.map(({ score, label, color, bg }) => (
+        <View key={score} style={[styles.scoreSummaryChip, { backgroundColor: bg }]}>
+          <Text style={[styles.scoreSummaryCount, { color }]}>{counts[score]}</Text>
+          <Text style={[styles.scoreSummaryLabel, { color }]}>{label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Score badge ─────────────────────────────────────────────────────────────
+
+const SCORE_STYLE: Record<RecommendationScore, { color: string; bg: string; label: string }> = {
+  VERY_LIKELY: { color: '#065F46', bg: '#D1FAE5', label: 'VL' },
+  LIKELY:      { color: '#1D4ED8', bg: '#DBEAFE', label: 'L'  },
+  REVIEW:      { color: '#92400E', bg: '#FEF3C7', label: 'R'  },
+  IGNORE:      { color: '#6B7280', bg: '#F3F4F6', label: '—'  },
+};
+
+function ScoreBadge({ score, compact }: { score: RecommendationScore; compact?: boolean }) {
+  const s = SCORE_STYLE[score];
+  return (
+    <View style={[styles.scoreBadge, { backgroundColor: s.bg }]}>
+      <Text style={[styles.scoreBadgeText, { color: s.color }]}>
+        {compact ? s.label : score.replace('_', ' ')}
+      </Text>
     </View>
   );
 }
@@ -789,7 +971,7 @@ const styles = StyleSheet.create({
   tableCellStatus: { flex: 1, textAlign: 'center' },
   tableCellDuplicate: { color: '#D97706', fontWeight: '700' },
 
-  bottomActions: { flexDirection: 'row', gap: 12, marginTop: 24 },
+  bottomActions: { flexDirection: 'row', gap: 12, marginTop: 24, flexWrap: 'wrap' },
   backBtn: {
     borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
     paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center',
@@ -797,8 +979,38 @@ const styles = StyleSheet.create({
   backBtnText: { fontSize: 15, fontWeight: '600', color: '#6B7280' },
   importBtn: {
     flex: 1, backgroundColor: '#059669', borderRadius: 10,
-    paddingVertical: 14, alignItems: 'center',
+    paddingVertical: 14, alignItems: 'center', minWidth: 140,
+  },
+  importBtnMatched: {
+    flex: 1, backgroundColor: '#2563EB', borderRadius: 10,
+    paddingVertical: 14, alignItems: 'center', minWidth: 140,
   },
   importBtnDisabled: { backgroundColor: '#6EE7B7' },
   importBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // New table columns
+  tableCellFx: { flex: 1.5 },
+  tableCellRate: { flex: 1, textAlign: 'right' as const },
+  tableCellScore: { flex: 1.5, alignItems: 'center' as const, justifyContent: 'center' as const },
+  scoreIgnore: { fontSize: 11, color: '#9CA3AF' },
+
+  // Score badge
+  scoreBadge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  scoreBadgeText: { fontSize: 11, fontWeight: '700' },
+
+  // Wizard box
+  wizardBox: {
+    backgroundColor: '#F0FDF4', borderRadius: 10, padding: 14,
+    borderWidth: 1, borderColor: '#BBF7D0', marginBottom: 4,
+  },
+  wizardHint: { fontSize: 13, color: '#065F46', marginTop: 8, lineHeight: 18 },
+
+  // Score summary
+  scoreSummaryRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  scoreSummaryChip: {
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    alignItems: 'center', minWidth: 60,
+  },
+  scoreSummaryCount: { fontSize: 18, fontWeight: '800' },
+  scoreSummaryLabel: { fontSize: 10, fontWeight: '600', marginTop: 1 },
 });

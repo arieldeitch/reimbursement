@@ -28,6 +28,16 @@ export interface Expense extends Entity {
   deletedAt: string | null;
   workTripId?: string;
   reimbursementBatchId?: string;
+  // Multi-currency fields (populated on import from dual-amount bank exports)
+  originalAmount?: number;
+  originalCurrency?: string;
+  chargedAmount?: number;
+  chargedCurrency?: string;
+  effectiveRate?: number;
+  // Installment fields (populated when bank notes contain "תשלום X מתוך Y")
+  isInstallment?: boolean;
+  installmentIndex?: number;
+  installmentTotal?: number;
 }
 
 export const EXPENSE_CATEGORIES: { value: ExpenseCategory; label: string }[] = [
